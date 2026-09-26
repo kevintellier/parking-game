@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildTruck } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
@@ -392,6 +393,23 @@ function updateFx(dt) {
     p.m.material.opacity = 0.8 * (1 - p.t / 0.9);
     if (p.t > 0.9) { scene.remove(p.m); p.m.material.dispose(); puffs.splice(i, 1); }
   }
+  for (const s of smoke) if (s.m.visible) {
+    s.t += dt; s.m.position.addScaledVector(s.v, dt); s.v.y *= 1 - dt * 0.6;
+    s.m.scale.setScalar(0.7 + s.t * 1.9);
+    s.m.material = SMOKE[Math.min(7, (s.t / s.life * 8) | 0)];
+    s.m.visible = s.t < s.life;
+  }
+}
+// diesel smoke: ring buffer of ≤150 meshes sharing puffGeo and 8 fade-step materials (no per-particle allocation)
+const SMOKE = Array.from({ length: 8 }, (_, i) => new THREE.MeshStandardMaterial({ color: '#1b1b1b', transparent: true, opacity: 0.8 * (1 - i / 8), depthWrite: false, flatShading: true }));
+const smoke = [];
+let smokeI = 0;
+function smokePuff(p) {
+  let s = smoke[smokeI];
+  if (!s) { s = smoke[smokeI] = { m: new THREE.Mesh(puffGeo, SMOKE[0]), v: new THREE.Vector3() }; scene.add(s.m); }
+  smokeI = (smokeI + 1) % 150;
+  s.m.position.set(p.x + rand(-0.1, 0.1), p.y, p.z + rand(-0.1, 0.1)); s.m.rotation.set(rand(0, 3), rand(0, 3), 0);
+  s.v.set(rand(-0.5, 0.5), rand(1.4, 2.4), rand(-0.5, 0.5)); s.t = 0; s.life = rand(1.6, 2.6); s.m.visible = true;
 }
 // tiny WebAudio synth: no audio files needed
 let actx = null, muted = false;
@@ -453,23 +471,26 @@ function buildCar(color, type) {
     box(body, 0.2, 0.1, 0.12, paint, t.cabX + t.cab / 2 - 0.2, cy - 0.1, sz * (t.w / 2 + 0.02)); // mirrors
     for (const sx of [-1, 1]) mesh(g, wheelGeo, '#1b1b1d', sx * (t.len / 2 - 0.78), 0.34, sz * (t.w / 2 - 0.08)).rotation.x = Math.PI / 2;
   }
-  return { g, body, t };
+  return { g, body, len: t.len };
 }
 
 const cars = [], bins = [];
 let carId = 0;
-function addCar(kind, color, type) {
-  const { g, body, t } = buildCar(color, type);
+// m: a { g, body, len, w? } model (buildCar or buildTruck); collision = round(len/2) circles of radius w/2 along the length
+function addCar(kind, color, type, m = buildCar(color, type)) {
+  const { g, body, len } = m, r = m.w ? m.w / 2 : CAR_R, n = Math.max(2, Math.round(len / 2)), e = len / 2 - r;
   scene.add(g);
-  const c = { id: carId++, kind, mesh: g, body, len: t.len, off: t.len / 2 - 0.9, x: 0, z: 0, ang: 0, speed: 0, dir: 1,
-    state: kind === 'mine' ? 'mine' : 'drive', blocker: kind === 'mine', slot: null, timer: 0, scan: 0, honkT: 0, cruise: rand(6.5, 9), wantsSlot: true };
+  const c = { id: carId++, kind, mesh: g, body, len, r, circ: Array.from({ length: n }, (_, i) => e - 2 * e * i / (n - 1)), x: 0, z: 0, ang: 0, speed: 0, dir: 1,
+    state: kind === 'mine' ? 'mine' : 'drive', blocker: kind === 'mine', slot: null, timer: 0, scan: 0, honkT: 0, cruise: rand(6.5, 9), wantsSlot: true,
+    acc: 9, top: 13, turn: 0.55, pivot: 0, markY: 2.9 };
   c.marker = new THREE.Sprite(MARK[kind]);
-  c.marker.position.y = 2.9; c.marker.scale.setScalar(kind === 'neighbour' ? 0.9 : 1.1); c.marker.renderOrder = 5;
+  c.marker.scale.setScalar(kind === 'neighbour' ? 0.9 : 1.1); c.marker.renderOrder = 5;
   g.add(c.marker);
   cars.push(c);
   return c;
 }
-const circles = (x, z, ang, off) => { const cx = Math.cos(ang) * off, sz = Math.sin(ang) * off; return [[x + cx, z - sz], [x - cx, z + sz]]; };
+// collision circles [x, z, r] of vehicle c, optionally at a hypothetical pose
+const circles = (c, x = c.x, z = c.z, ang = c.ang) => { const cs = Math.cos(ang), sn = Math.sin(ang); return c.circ.map(o => [x + cs * o, z - sn * o, c.r]); };
 
 // ───────────────────────── slots
 const slotGeo = new THREE.PlaneGeometry(SLOT_LEN - 0.35, 2.0);
@@ -494,7 +515,13 @@ for (const s of [-1, 1]) for (const x of SLOT_XS[s]) {
     strip.append(row);
   }
 }
-const inSlot = (o, s) => Math.abs(o.x - s.x) < SLOT_LEN / 2 && Math.abs(o.z - s.z) < 1.4;
+const inSlot = (o, s) => Math.abs(o.x - s.x) < SLOT_LEN / 2 && Math.abs(o.z - s.z) < 1.4; // pedestrians
+// vehicles block every bay their length overlaps by ≥1.2 m while in that side's parking lane: parked across a line = 2 bays
+const covers = (c, s) => Math.abs(c.z - s.z) < 1.4 && (SLOT_LEN + c.len) / 2 - Math.abs(c.x - s.x) >= 1.2;
+// E-snap targets per side: bay centres + boundaries between adjacent bays
+const SNAP_XS = Object.fromEntries([1, -1].map(s => [s, SLOT_XS[s].flatMap((x, i, a) => a[i + 1] - x < SLOT_LEN + 0.1 ? [x, x + SLOT_LEN / 2] : [x])]));
+const parkZ = (c, side) => side * Math.min(SLOT_Z, CURB_Z - c.r - 0.15); // wide vehicles keep off the curb so they can pull out
+const snapX = (side, x) => SNAP_XS[side].reduce((a, b) => Math.abs(b - x) < Math.abs(a - x) ? b : a);
 const parkedAng = () => 0; // one-way: everyone parks facing +x
 
 // ───────────────────────── player (pedestrian)
@@ -538,11 +565,11 @@ function findSlot(c) {
 }
 function obstacleAhead(c) {
   let gap = Infinity, who = null;
-  const test = (o, x, z, clear) => {
+  const test = (o, x, z, clear, lat = 1.9) => {
     const along = (x - c.x) * c.dir;
-    if (along > 0 && Math.abs(z - c.z) < 1.9 && along - clear < gap) { gap = along - clear; who = o; }
+    if (along > 0 && Math.abs(z - c.z) < lat && along - clear < gap) { gap = along - clear; who = o; }
   };
-  for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked') test(o, o.x, o.z, (c.len + o.len) / 2 + 1.2);
+  for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked') for (const [x, z, r] of circles(o)) test(o, x, z, c.len / 2 + r + 1.2, CAR_R + r);
   if (!driving) test(player, player.x, player.z, c.len / 2 + 1.2);
   for (const b of bins) test(b, b.x, b.z, c.len / 2 + 1);
   return [gap, who];
@@ -652,38 +679,57 @@ function spawner(dt) {
 // ───────────────────────── player movement & actions
 function carPen(c, x, z, ang) {
   let pen = 0;
-  for (const [ax, az] of circles(x, z, ang, c.off)) {
-    pen += Math.max(0, Math.abs(az) + MY_R - CURB_Z) + Math.max(0, Math.abs(ax) - 62);
+  for (const [ax, az, ar] of circles(c, x, z, ang)) {
+    pen += Math.max(0, Math.abs(az) + ar - CURB_Z) + Math.max(0, Math.abs(ax) - 62);
     for (const o of cars) {
       if (o === c || o.state === 'away') continue;
-      for (const [bx, bz] of circles(o.x, o.z, o.ang, o.off)) pen += Math.max(0, MY_R + CAR_R - Math.hypot(ax - bx, az - bz));
+      for (const [bx, bz, br] of circles(o)) pen += Math.max(0, ar + br - Math.hypot(ax - bx, az - bz));
     }
-    for (const b of bins) pen += Math.max(0, MY_R + BIN_R - Math.hypot(ax - b.x, az - b.z));
+    for (const b of bins) pen += Math.max(0, ar + BIN_R - Math.hypot(ax - b.x, az - b.z));
   }
   return pen;
 }
+// E "tidy into spot": straight, in the parking lane, x on the nearest bay centre/boundary (keeps a deliberate straddle); null if it would collide
+function tidy(c) {
+  if (!slots.some(s => covers(c, s))) return null;
+  const side = Math.sign(c.z), sx = snapX(side, c.x);
+  const t = { x: Math.abs(sx - c.x) < SLOT_LEN / 2 ? sx : c.x, z: parkZ(c, side), ang: Math.cos(c.ang) >= 0 ? 0 : Math.PI };
+  return carPen(c, t.x, t.z, t.ang) <= carPen(c, c.x, c.z, c.ang) + 1e-4 ? t : null;
+}
 function drive(c, dt) {
-  const acc = keys.up ? 9 : keys.down ? (c.speed > 0.5 ? -16 : -6) : 0;
+  const acc = keys.up ? c.acc : keys.down ? (c.speed > 0.5 ? -1.8 : -0.67) * c.acc : 0;
   c.speed += acc * dt;
   if (!acc) c.speed *= Math.pow(0.3, dt);
   if (keys.brake) c.speed *= Math.pow(0.01, dt);
-  c.speed = clamp(c.speed, -5, 13);
+  c.speed = clamp(c.speed, -0.4 * c.top, c.top);
   const steer = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
-  const ang = c.ang + steer * clamp(c.speed, -4, 4) * 0.55 * dt;
-  const x = c.x + Math.cos(ang) * c.speed * dt, z = c.z - Math.sin(ang) * c.speed * dt;
+  const ang = c.ang + steer * clamp(c.speed, -4, 4) * c.turn * dt, k = c.pivot, d = c.speed * dt; // turns about a point k m behind the centre (rear axle)
+  const x = c.x - Math.cos(c.ang) * k + Math.cos(ang) * (k + d), z = c.z + Math.sin(c.ang) * k - Math.sin(ang) * (k + d);
   const before = carPen(c, c.x, c.z, c.ang), after = carPen(c, x, z, ang);
   if (after <= before + 1e-4) Object.assign(c, { x, z, ang });
   else {
     if (Math.abs(c.speed) > 3) { puff(x, z, 3, '#ddd'); floatText('Bump!', c.x, 2.8, c.z, '#ffd166'); }
     c.speed *= -0.2;
   }
+  if (c.truck) truckFx(c, dt);
+}
+// black diesel smoke (idle trickle, more with speed, lots on the throttle) + low rumble
+function truckFx(c, dt) {
+  const v = Math.abs(c.speed);
+  c.smokeT += dt * (v > 0.3 ? 12 + v * 3 + (keys.up ? 30 : 0) : 3);
+  if (c.smokeT >= 1) {
+    c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = c.ang; c.mesh.updateMatrixWorld();
+    const p = c.mesh.localToWorld(c.exhaust.clone());
+    for (; c.smokeT >= 1; c.smokeT--) smokePuff(p);
+  }
+  if ((c.rumbleT -= dt) <= 0) { c.rumbleT = 0.16; beep([36 + v * 5], 0.18, 'sawtooth', keys.up ? 0.035 : 0.02); }
 }
 const pedBounds = p => { p.x = clamp(p.x, -60, 60); p.z = clamp(p.z, -WALL_Z + 0.45, WALL_Z - 0.45); };
 function pushOut(p) {
   for (const o of cars) {
     if (o.state === 'away') continue;
-    for (const [bx, bz] of circles(o.x, o.z, o.ang, o.off)) {
-      const dx = p.x - bx, dz = p.z - bz, d = Math.hypot(dx, dz), m = CAR_R + P_R;
+    for (const [bx, bz, r] of circles(o)) {
+      const dx = p.x - bx, dz = p.z - bz, d = Math.hypot(dx, dz), m = r + P_R;
       if (d < m && d > 1e-4) { p.x = bx + (dx / d) * m; p.z = bz + (dz / d) * m; }
     }
   }
@@ -707,10 +753,10 @@ function walk(dt) {
   pushOut(player);
 }
 const pedFree = (x, z) => Math.abs(z) < WALL_Z - 0.45 && Math.abs(x) < 60 &&
-  !cars.some(o => o.state !== 'away' && circles(o.x, o.z, o.ang, o.off).some(([bx, bz]) => Math.hypot(x - bx, z - bz) < CAR_R + P_R));
-const nearestMine = () => {
-  let best = null, bd = 3.6;
-  for (const c of cars) if (c.kind === 'mine') { const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < bd) { bd = d; best = c; } }
+  !cars.some(o => o.state !== 'away' && circles(o).some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r + P_R));
+const nearestMine = () => { // measured to the nearest collision circle, so the long truck works from either end
+  let best = null, bd = 2.2;
+  for (const c of cars) if (c.kind === 'mine') for (const [x, z, r] of circles(c)) { const d = Math.hypot(x - player.x, z - player.z) - r; if (d < bd) { bd = d; best = c; } }
   return best;
 };
 const nearBin = () => bins.find(b => Math.hypot(b.x - player.x, b.z - player.z) < 1.8);
@@ -724,22 +770,21 @@ const binSlot = () => {
 function actionE() {
   if (!driving) {
     const c = nearestMine();
-    if (c) { driving = c; c.speed = 0; person.g.visible = false; SFX.door(); }
+    if (c) { driving = c; c.speed = 0; if (c.truck) c.smokeT = 8; person.g.visible = false; SFX.door(); }
     return;
   }
   const c = driving;
   if (Math.abs(c.speed) > 2) return toast('Slow down before getting out!');
-  const sl = slots.find(s => inSlot(c, s));
-  if (sl) { // tidy the car into the spot if it fits
-    const ang = Math.cos(c.ang) >= 0 ? 0 : Math.PI;
-    if (carPen(c, sl.x, sl.z, ang) <= carPen(c, c.x, c.z, c.ang) + 1e-4) Object.assign(c, { x: sl.x, z: sl.z, ang });
-  }
-  const cs = Math.cos(c.ang), sn = Math.sin(c.ang);
-  for (const [a, l] of [[0, 1.8], [0, -1.8], [-c.len / 2 - 0.8, 0], [c.len / 2 + 0.8, 0], [0, 2.8], [0, -2.8]]) {
+  const t = tidy(c);
+  if (t) Object.assign(c, t);
+  // exits: beside each collision circle front→back (driver door first), then behind / ahead, then further out
+  const cs = Math.cos(c.ang), sn = Math.sin(c.ang), w = c.r + 0.85;
+  for (const [a, l] of [...c.circ.flatMap(a => [[a, w], [a, -w]]), [-c.len / 2 - 0.8, 0], [c.len / 2 + 0.8, 0], [0, w + 1], [0, -w - 1]]) {
     const x = c.x + cs * a - sn * l, z = c.z - sn * a - cs * l;
     if (!pedFree(x, z)) continue;
     player.x = x; player.z = z; c.speed = 0; driving = null; person.g.visible = true; SFX.door();
-    if (sl && (!sl.ai || sl.ai.state === 'drive')) { floatText('Spot secured!', sl.x, 3.2, sl.z, '#ffd166'); puff(sl.x, sl.z, 5, '#fff3c4'); SFX.block(); }
+    const n = slots.filter(s => covers(c, s) && (!s.ai || s.ai.state === 'drive')).length;
+    if (n) { floatText(n > 1 ? `${n} spots blocked!` : 'Spot secured!', c.x, c.markY + 0.4, c.z, '#ffd166'); puff(c.x, c.z, 4 + n, '#fff3c4'); SFX.block(); }
     return;
   }
   toast('No room to get out here');
@@ -781,6 +826,29 @@ function buyCar() {
   SFX.buy();
   pushOut(player);
 }
+const TRUCK_PRICE = 1000;
+let truckOwned = false;
+function buyTruck() {
+  if (truckOwned) return toast('You already own the truck');
+  if (score < TRUCK_PRICE) return toast(`The truck costs ${TRUCK_PRICE} credits`);
+  // delivered across two adjacent free bays (same group), nearest the player
+  const from = driving || player, free = s => s && !s.ai && (!s.block || s.block === player);
+  let best = null, bd = Infinity;
+  for (const s of slots) {
+    const x = s.x + SLOT_LEN / 2, d = Math.hypot(x - from.x, s.z - from.z);
+    if (d < bd && free(s) && free(slots.find(q => q.side === s.side && Math.abs(q.x - s.x - SLOT_LEN) < 0.1))) { bd = d; best = s; }
+  }
+  if (!best) return toast('The truck needs two free spots in a row');
+  score -= TRUCK_PRICE; truckOwned = true;
+  const m = buildTruck(ENV), c = addCar('mine', null, null, m);
+  Object.assign(c, { x: best.x + SLOT_LEN / 2, z: parkZ(c, best.side), ang: 0, truck: true, exhaust: m.exhaust,
+    acc: 3.5, top: 9, turn: 0.3, pivot: 2.8, smokeT: 0, rumbleT: 0, markY: 4.6 });
+  c.marker.scale.setScalar(1.4);
+  puff(c.x, c.z, 14, '#fff3c4');
+  floatText('Truck delivered!', c.x, 5, c.z, '#ffd166');
+  SFX.buy();
+  pushOut(player);
+}
 function buyBin() {
   const price = binPrice();
   if (score < price) return toast(`A bin costs ${price} credits`);
@@ -799,17 +867,19 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Sound off' : 'Sound on'); }
   if (e.code === 'Digit1' || e.code === 'Numpad1') buyCar();
   if (e.code === 'Digit2' || e.code === 'Numpad2') buyBin();
+  if (e.code === 'Digit3' || e.code === 'Numpad3') buyTruck();
 });
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 $('buyCar').onclick = e => { buyCar(); e.currentTarget.blur(); };
 $('buyBin').onclick = e => { buyBin(); e.currentTarget.blur(); };
+$('buyTruck').onclick = e => { buyTruck(); e.currentTarget.blur(); };
 
 // ───────────────────────── per-frame bookkeeping
 function computeBlocks() {
   for (const s of slots) {
     s.block = null;
-    for (const c of cars) if (c.blocker && inSlot(c, s)) s.block = c;
+    for (const c of cars) if (c.blocker && covers(c, s)) s.block = c;
     for (const b of bins) if (b.slot === s) s.block = b;
     if (!driving && !s.block && inSlot(player, s)) s.block = player;
     // a blocker cancels a reservation, even mid-manoeuvre: the car rejoins traffic instead of parking through it
@@ -854,10 +924,19 @@ function hud(dt) {
   $('binPrice').textContent = binPrice();
   $('buyCar').disabled = score < carPrice();
   $('buyBin').disabled = score < binPrice();
-  $('inv').textContent = binsInHand ? `🗑️ ${binsInHand} in hand · B in a free spot` : `${carsOwned} car${carsOwned > 1 ? 's' : ''} owned`;
+  $('truckPrice').textContent = truckOwned ? 'Owned' : TRUCK_PRICE;
+  $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
+  $('inv').textContent = binsInHand ? `🗑️ ${binsInHand} in hand · B in a free spot` : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`;
+  const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.8 ? 1 : 2;
+  $('traffic').textContent = ['calm', 'busy', 'rush hour'][tl];
+  $('trafficDot').style.background = ['#06d6a0', '#ffd166', '#ef476f'][tl];
   let p = '';
-  if (driving) p = slots.some(s => inSlot(driving, s)) ? 'E — leave the car here (spot blocked)' : 'E — get out';
-  else if (nearestMine()) p = 'E — drive this car';
+  const mine = !driving && nearestMine();
+  if (driving) { // count what the E-snap will actually block
+    const n = slots.filter(s => covers({ ...driving, ...tidy(driving) }, s)).length;
+    p = n ? `E — leave the ${driving.truck ? 'truck' : 'car'} here (${n} spot${n > 1 ? 's' : ''} blocked)` : 'E — get out';
+  }
+  else if (mine) p = `E — drive ${mine.truck ? 'the truck' : 'this car'}`;
   else if (nearBin()) p = 'B — pick up bin';
   else if (binsInHand && binSlot()) p = 'B — place bin here';
   $('prompt').textContent = started ? p : '';
@@ -869,7 +948,7 @@ function sync(dt) {
     c.mesh.rotation.y = c.ang;
     c.body.position.y = Math.abs(c.speed) > 0.3 ? Math.sin(elapsed * 17 + c.id) * 0.02 : 0;
     c.marker.visible = c.kind !== 'foreign' || c.state === 'park' || c.state === 'parked';
-    c.marker.position.y = 2.9 + Math.sin(elapsed * 3 + c.id) * 0.12;
+    c.marker.position.y = c.markY + Math.sin(elapsed * 3 + c.id) * 0.12;
   }
   person.g.position.set(player.x, 0, player.z);
   let da = player.ang - person.g.rotation.y;
@@ -937,3 +1016,11 @@ window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, buy
   get score() { return score; }, set score(v) { score = v; }, get driving() { return driving; }, get rate() { return rate; }, get binsInHand() { return binsInHand; },
   zoom(v) { viewH = v; resize(); },
   step(sec, dt = 1 / 30) { for (let t = 0; t < sec; t += dt) { update(dt); sync(dt); updateFx(dt); } } };
+// vehicles: selfTest() checks the straddle rule (a car on a bay line blocks 2, the truck 2 or 3) and the E-snap targets
+Object.assign(window.__game, { buyTruck, circles, smoke, selfTest() {
+  const s = slots.find(q => q.side === -1 && q.x === -20), n = (dx, len = 4, dz = 0) => slots.filter(q => covers({ x: s.x + dx, z: s.z + dz, len }, q)).length;
+  const got = [n(0), n(SLOT_LEN / 2), n(1.5), n(2), n(0, 4, -s.z), n(SLOT_LEN / 2, 9.6), n(SLOT_LEN, 9.6), n(SLOT_LEN + 1.5, 9.6)].join();
+  if (got !== '1,2,1,2,0,2,3,2') throw new Error(`straddle rule: ${got}`);
+  if (Math.abs(snapX(-1, -18.1) + 17.3) > 1e-9 || snapX(-1, -19) !== -20) throw new Error('E-snap targets');
+  return 'ok';
+} });
