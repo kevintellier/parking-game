@@ -1364,7 +1364,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (started && !paused) update(dt);
-  if (!paused) { sync(dt); updateFx(dt); paintSlots(); }
+  if (!paused) { sync(dt); updateFx(dt); updateWorld(dt); paintSlots(); }
   hud(dt);
   const who = driving || player;
   camTarget.lerp(new THREE.Vector3(who.x, 0, who.z), 1 - Math.exp(-4 * dt));
