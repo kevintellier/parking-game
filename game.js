@@ -47,8 +47,8 @@ addEventListener('resize', resize);
 addEventListener('wheel', e => { viewH = clamp(viewH * (e.deltaY > 0 ? 1.1 : 0.9), 8, 34); resize(); }, { passive: true });
 resize();
 
-scene.add(new THREE.HemisphereLight('#dbe9ff', '#8a7b5c', 1.1));
-const sun = new THREE.DirectionalLight('#fff0d8', 2.4);
+scene.add(new THREE.HemisphereLight('#e4edf8', '#98896a', 1.5));
+const sun = new THREE.DirectionalLight('#fff0da', 2.1);
 const SUN_OFF = new THREE.Vector3(-25, 50, 30);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -93,104 +93,309 @@ function canvasTex(size, draw, rx = 1, ry = 1) {
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
+// world generation uses a seeded PRNG so the street is identical on every load
+let seed = 1789;
+const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+const sr = (a, b) => a + rnd() * (b - a), sp = a => a[(rnd() * a.length) | 0];
+const V2 = (x, y) => new THREE.Vector2(x, y), V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 function speckle(g, s, n, alpha) {
   for (let i = 0; i < n; i++) {
-    g.fillStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '0,0,0'},${Math.random() * alpha})`;
-    const r = 1 + Math.random() * 2;
-    g.fillRect(Math.random() * s, Math.random() * s, r, r);
+    g.fillStyle = `rgba(${rnd() < 0.5 ? '255,255,255' : '0,0,0'},${rnd() * alpha})`;
+    const r = 1 + rnd() * 2;
+    g.fillRect(rnd() * s, rnd() * s, r, r);
   }
 }
 const asphalt = (rx, ry) => canvasTex(256, (g, s) => {
-  g.fillStyle = '#56585c'; g.fillRect(0, 0, s, s);
+  g.fillStyle = '#5a5b5e'; g.fillRect(0, 0, s, s);
   speckle(g, s, 9000, 0.13);
 }, rx, ry);
-const pavingTex = canvasTex(256, (g, s) => {
-  g.fillStyle = '#a19c93'; g.fillRect(0, 0, s, s);
-  speckle(g, s, 7000, 0.12);
-  g.strokeStyle = 'rgba(60,55,50,.35)'; g.lineWidth = 2;
-  for (let i = 0; i <= 4; i++) { g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, s); g.moveTo(0, i * 64); g.lineTo(s, i * 64); g.stroke(); }
-}, STREET_X, 1);
+const walkTex = canvasTex(256, (g, s) => { g.fillStyle = '#7b7a75'; g.fillRect(0, 0, s, s); speckle(g, s, 9000, 0.15); });
+const cobbleTex = canvasTex(256, (g, s) => {
+  g.fillStyle = '#58554f'; g.fillRect(0, 0, s, s);
+  for (let y = 0; y < s; y += 16) for (let x = (y & 16) / 2 - 8; x < s; x += 16) { g.fillStyle = `hsl(35,${sr(4, 9)}%,${sr(50, 68)}%)`; g.fillRect(x + 1.5, y + 1.5, 13, 13); }
+  speckle(g, s, 3000, 0.12);
+});
+const tileTex = canvasTex(256, (g, s) => {
+  g.setTransform(0, 1, 1, 0, 0, 0); // courses run along the ridge (texture v)
+  const c = s / 6;
+  g.fillStyle = '#4a2014'; g.fillRect(0, 0, s, s);
+  for (let y = 0; y < s; y += c) for (let x = 0; x < s; x += 32) {
+    const l = sr(37, 43);
+    g.fillStyle = `hsl(${sr(9, 14)},${sr(44, 52)}%,${l}%)`; g.fillRect(x + 1, y, 30, c - 2);
+    g.fillStyle = `hsla(16,55%,${l + 9}%,.35)`; g.fillRect(x + 12, y, 6, c - 9);
+    g.fillStyle = 'rgba(50,12,0,.35)'; g.fillRect(x + 1, y + c - 9, 30, 7);
+  }
+});
 const grassTex = canvasTex(256, (g, s) => {
-  g.fillStyle = '#7b9a55'; g.fillRect(0, 0, s, s);
-  for (let i = 0; i < 5000; i++) { g.fillStyle = `hsla(${rand(70, 110)},40%,${rand(25, 50)}%,.25)`; g.fillRect(Math.random() * s, Math.random() * s, 2, 3); }
-}, 90, 90);
+  g.fillStyle = '#7b9d55'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 5000; i++) { g.fillStyle = `hsla(${sr(70, 110)},40%,${sr(25, 50)}%,.25)`; g.fillRect(rnd() * s, rnd() * s, 2, 3); }
+}, 110, 110);
+const tmat = (map, color = '#fff', o = {}) => new THREE.MeshStandardMaterial({ map, color, roughness: 0.9, flatShading: true, ...o });
+const ROOFS = ['#ffffff', '#f4ddd2', '#e6cbbd', '#dcc6bb'].map(c => tmat(tileTex, c, { roughness: 0.75 }));
+const WALK = tmat(walkTex), COBBLE = tmat(cobbleTex);
+
+// soft drifting cloud shadows: a multiply overlay drawn over the opaque scene, before the other transparents
+const cloudTex = canvasTex(256, (g, s) => {
+  g.fillStyle = '#fff'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 16; i++) {
+    const x = rnd() * s, y = rnd() * s, r = sr(24, 60);
+    for (const dx of [-s, 0, s]) for (const dy of [-s, 0, s]) {
+      const gr = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
+      gr.addColorStop(0, 'rgba(110,122,145,.3)'); gr.addColorStop(1, 'rgba(110,122,145,0)');
+      g.fillStyle = gr; g.fillRect(x + dx - r, y + dy - r, 2 * r, 2 * r);
+    }
+  }
+}, 7, 7);
+{
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+  m.rotation.x = -Math.PI / 2; m.renderOrder = -1; scene.add(m);
+}
+function updateWorld(dt) { cloudTex.offset.x -= dt * 0.01; cloudTex.offset.y += dt * 0.004; }
 
 // ───────────────────────── static world (built into S, then merged per material for speed)
 const S = new THREE.Group();
-const WALLS = ['#ece3cf', '#f1ede4', '#e5a791', '#efe6d6', '#dcd3c0', '#e9c9a8', '#f4f1ea'];
-const ROOFS = ['#a8472f', '#9c3f2a', '#b5553a', '#8e3b2a', '#a44d34', '#66615e'];
-const SHUTTERS = ['#6b3f2a', '#3f5a4a', '#8a8f96', '#f4f1ea', '#5a3a2e'];
-const LOT_WALLS = ['#f1ede4', '#ece6d8', '#e8b9a6', '#dcd6c8', '#f3efe6'];
-const FENCES = ['#2f4a3c', '#26292d', '#2f4a3c', '#5d666d', '#dfe7e4', 'hedge'];
-const GREENS = ['#5f8f3e', '#4f7a35', '#6fa04a', '#3f6b30', '#79a652'];
-const REDS = ['#8e2f3c', '#a03a3a', '#7a2836'];
+const INST = new Map(); // repeated small bits (railing bars, slats, flowers) → one InstancedMesh per geometry+material
+function inst(geo, mat, x, y, z, sy = 1, sxz = 1) {
+  const k = geo.uuid + mat.uuid;
+  if (!INST.has(k)) INST.set(k, { geo, mat, list: [] });
+  INST.get(k).list.push(new THREE.Matrix4().makeScale(sxz, sy, sxz).setPosition(x, y, z));
+}
+function tbox(P, w, h, d, mat, x = 0, y = 0, z = 0) { // box with world-scaled UVs (one texture = 2 m)
+  const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / 2, uv.getY(i) * d / 2);
+  return mesh(P, g, mat, x, y, z);
+}
+const BAR = boxGeo(0.045, 0.72, 0.045), SLAT = boxGeo(0.11, 1, 0.03), TRUNK = new THREE.CylinderGeometry(0.12, 0.2, 1, 6);
+const FLOWER = new THREE.IcosahedronGeometry(0.07, 0), TUFT = new THREE.IcosahedronGeometry(1, 0), CONE = new THREE.ConeGeometry(1, 1, 7), BALL = new THREE.SphereGeometry(0.15, 10, 8);
+const WAVE = new THREE.ExtrudeGeometry(new THREE.Shape([...Array(9)].map((_, i) => V2(0.05 * Math.sin(i * Math.PI / 4), -0.36 + i * 0.09))
+  .concat([...Array(9)].map((_, i) => V2(0.05 * Math.sin((8 - i) * Math.PI / 4) + 0.035, 0.36 - i * 0.09)))), { depth: 0.03, bevelEnabled: false }).translate(-0.02, 0, -0.015);
+const BLOB = [0, 1, 2, 3].map(i => { // lumpy foliage
+  const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position;
+  for (let j = 0; j < p.count; j++) { const x = p.getX(j), y = p.getY(j), z = p.getZ(j), k = 1 + 0.16 * Math.sin(x * 4.1 + y * 3.3 + i * 2) * Math.cos(z * 3.7 - y * 2.1 + i); p.setXYZ(j, x * k, y * k, z * k); }
+  return g;
+});
+const WALLS = ['#efe4cc', '#f3f0e8', '#e9d7b9', '#f1e6d0', '#e8e5de', '#f0dcc0', '#ecd9c9', '#f5efe0'];
+const SHUTTERS = ['#5b3626', '#6b4230', '#4a2e22', '#7d8a94', '#3f5a4a', '#f4f1ea', null, null]; // null: roller shutters
+const GREENS = ['#5f8f3e', '#4f7a35', '#6fa04a', '#3f6b30', '#79a652', '#557f3a'];
+const REDS = ['#6e2233', '#7b2a3c', '#8a3345', '#5e1f2e'];
+const HEDGES = { privet: ['#5d8c3c', '#6a9844', '#557f36'], thuja: ['#3d5e3a', '#46683f', '#36553a'], photinia: ['#4f7a35', '#5f8f3e', '#557f3a', '#84503a'], laurel: ['#355f27', '#3f6e2c', '#4b7d33', '#2f5523'] };
+const STYLES = { // front boundaries: low rendered wall + capped pillars + railing / slats / hedge
+  green: { wall: '#f2efe8', cap: '#cdc9c0', pil: '#f2efe8', bar: '#2d4b3b', gate: '#2d5a43' },
+  anth: { wall: '#f0ede6', cap: '#c3c0b9', pil: '#e2dfd8', bar: '#2d3034', gate: '#34383c' },
+  black: { wall: '#ebe7de', cap: '#bdb9b1', pil: '#ebe7de', bar: '#1f2123', gate: '#1f2123' },
+  hedge: { wall: '#ece6d8', cap: '#d6d0c4', pil: '#ece6d8', hedge: 'privet', gate: '#2d4b3b' },
+  thuja: { wall: '#f1eee6', cap: '#c9c5bc', pil: '#f1eee6', hedge: 'thuja', gate: '#26292d' },
+  photinia: { wall: '#e9e3d4', cap: '#cfc9bb', pil: '#e9e3d4', bar: '#5d666d', hedge: 'photinia', gate: '#5d666d' },
+  pink: { wall: '#e39e88', cap: '#efe4da', pil: '#e39e88', bar: '#b8dccd', wave: true, gate: '#a9cfc0', ball: '#8fa6bf' },
+  laurel: { wall: '#efece5', cap: '#b4633f', pil: '#a65a3b', ph: 2.3, slat: '#8b2c36', hedge: 'laurel', gate: '#8b2c36' },
+};
+const FRONTS = []; // far-side facade points for the overhead service wires
 
-function win(P, x, y, z, rotY, shutter) {
-  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; P.add(g);
-  box(g, 1.15, 1.35, 0.06, '#f4f2ec');
-  box(g, 0.9, 1.1, 0.06, GLASS, 0, 0, 0.02);
-  box(g, 0.06, 1.1, 0.08, '#f4f2ec', 0, 0, 0.04);
-  box(g, 1.3, 0.08, 0.2, '#e3dfd6', 0, -0.72, 0.08);
-  if (shutter) for (const k of [-1, 1]) box(g, 0.5, 1.35, 0.05, shutter, k * 0.85, 0, 0);
+function win(P, x, y, z, rotY, shut, k = 1) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; g.scale.setScalar(k); P.add(g);
+  box(g, 1.05, 1.3, 0.06, '#f6f5f0');
+  box(g, 0.85, 1.1, 0.06, GLASS, 0, 0, 0.02);
+  box(g, 0.05, 1.1, 0.08, '#f6f5f0', 0, 0, 0.04);
+  box(g, 1.25, 0.07, 0.22, '#dcd8ce', 0, -0.68, 0.08);
+  if (shut) for (const q of [-1, 1]) box(g, 0.52, 1.32, 0.05, shut, q * 0.8, 0, 0.02);
+  else box(g, 1.1, 0.22, 0.14, '#e4e2dc', 0, 0.76, 0.05);
 }
-function door(P, x, z, rotY, color, awning) {
+function oeil(P, x, y, z) { // oval "œil-de-bœuf" facing +x
+  for (const [r, t, c] of [[0.5, 0.08, '#a9cfc0'], [0.38, 0.1, GLASS]]) { const m = mesh(P, new THREE.CylinderGeometry(r, r, t, 20), c, x, y, z); m.rotation.z = Math.PI / 2; m.scale.z = 1.35; }
+}
+function door(P, x, z, rotY, color, porch, rm) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY; P.add(g);
-  box(g, 1.25, 2.3, 0.06, '#f4f2ec', 0, 1.4, 0);
-  box(g, 1.0, 2.1, 0.08, color, 0, 1.35, 0.02);
-  box(g, 1.7, 0.1, 0.9, awning, 0, 2.75, 0.45).rotation.x = 0.25;
+  box(g, 1.25, 2.35, 0.06, '#f4f2ec', 0, 1.37, 0);
+  box(g, 1.0, 2.15, 0.08, color, 0, 1.3, 0.02);
+  box(g, 0.4, 0.5, 0.09, GLASS, 0, 1.85, 0.03);
+  box(g, 1.6, 0.2, 0.55, '#cfcac0', 0, 0.1, 0.28);
+  if (!porch) return;
+  tbox(g, 2.0, 0.08, 1.1, rm, 0, 2.95, 0.55).rotation.x = 0.35; // tiled porch awning on brackets
+  for (const q of [-1, 1]) box(g, 0.06, 0.06, 1.0, '#3a2a22', q * 0.8, 2.6, 0.45).rotation.x = -0.6;
 }
-function house(P, cx, s, zFront, w, d, h, detail = true) {
-  const g = new THREE.Group(); g.position.set(cx, 0, s * (zFront + d / 2)); P.add(g);
-  const wc = pick(WALLS), rc = pick(ROOFS), sc = pick(SHUTTERS);
+function house(P, cx, s, zf, o = {}) {
+  const w = o.w ?? sr(7.5, 10), d = o.d ?? sr(7.5, 9), h = o.h ?? sp([3.5, 3.8, 5.6, 5.8, 6.1]), up = h > 5;
+  const wc = o.wall ?? sp(WALLS), sc = o.shut !== undefined ? o.shut : sp(SHUTTERS), rm = sp(ROOFS);
+  const g = new THREE.Group(); g.position.set(cx, 0, s * (zf + d / 2)); P.add(g);
   box(g, w, h, d, wc, 0, h / 2, 0);
-  box(g, w + 0.12, 0.45, d + 0.12, '#b3aa9b', 0, 0.22, 0);
-  box(g, w + 0.1, 0.16, d + 0.1, '#f7f5ef', 0, h - 0.08, 0);
-  // gable roof: wall-coloured triangle + two tile slabs
-  const along = Math.random() < 0.6, span = along ? d : w, len = along ? w : d, half = span / 2;
-  const rh = half * rand(0.7, 0.95), ov = 0.45, a = Math.atan2(rh, half), slope = Math.hypot(half, rh) + ov;
+  box(g, w + 0.1, 0.5, d + 0.1, '#bcb4a6', 0, 0.25, 0);
+  box(g, w + 0.08, 0.14, d + 0.08, '#f7f5ef', 0, h - 0.07, 0);
+  // gable roof: wall-coloured prism + two tiled slabs with overhang, velux on the slab facing the camera
+  const along = o.along ?? rnd() < 0.6, span = along ? d : w, len = along ? w : d, half = span / 2, rh = half * sr(0.8, 0.95);
+  const ov = 0.45, a = Math.atan2(rh, half), sl = Math.hypot(half, rh) + ov;
   const r = new THREE.Group(); r.position.y = h; r.rotation.y = along ? Math.PI / 2 : 0; g.add(r);
-  const tg = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-half, 0), new THREE.Vector2(half, 0), new THREE.Vector2(0, rh)]), { depth: len, bevelEnabled: false });
-  tg.translate(0, 0, -len / 2);
-  mesh(r, tg, wc);
+  mesh(r, new THREE.ExtrudeGeometry(new THREE.Shape([V2(-half, 0), V2(half, 0), V2(0, rh)]), { depth: len, bevelEnabled: false }).translate(0, 0, -len / 2), wc);
   for (const k of [-1, 1]) {
-    box(r, slope, 0.22, len + 2 * ov, rc, k * (slope * Math.cos(a) / 2 + Math.sin(a) * 0.11), rh - slope * Math.sin(a) / 2 + Math.cos(a) * 0.11, 0).rotation.z = -k * a;
-  }
-  box(r, 0.34, 0.24, len + 2 * ov, '#7a3424', 0, rh + 0.14, 0);
-  const chx = half * 0.4 * pick([-1, 1]), chz = rand(-len / 3, len / 3);
-  box(r, 0.7, rh + 1.1, 0.7, pick([wc, '#9a5a44']), chx, (rh + 1.1) / 2, chz);
-  box(r, 0.85, 0.12, 0.85, '#8d8a85', chx, rh + 1.16, chz);
-  if (!detail) return;
-  // facades: street side (door), back side and +x side get windows
-  const faces = [{ z: -s * (d / 2 + 0.03), rot: s > 0 ? Math.PI : 0, front: true }, { z: s * (d / 2 + 0.03), rot: s > 0 ? 0 : Math.PI }];
-  for (const f of faces) {
-    const n = Math.max(2, Math.floor(w / 2.4)), doorI = f.front ? (Math.random() * n) | 0 : -1;
-    for (let i = 0; i < n; i++) {
-      const x = -w / 2 + (i + 0.5) * (w / n);
-      if (i === doorI) door(g, x, f.z, f.rot, sc === '#f4f1ea' ? '#6b3f2a' : sc, rc);
-      else win(g, x, 1.6, f.z, f.rot, sc);
-      if (h > 5.3) win(g, x, h - 1.55, f.z, f.rot, sc);
+    const m = tbox(r, sl, 0.2, len + 2 * ov, rm, k * (sl * Math.cos(a) / 2 + Math.sin(a) * 0.1), rh - sl * Math.sin(a) / 2 + Math.cos(a) * 0.1, 0);
+    m.rotation.z = -k * a;
+    if (k === (along ? -1 : 1) && (o.velux ?? rnd() < 0.5)) for (const v of len > 9 ? [-2, 2] : [sr(-1.5, 1.5)]) {
+      box(m, 1.0, 0.05, 0.8, '#e6e4de', 0, 0.12, v); box(m, 0.84, 0.06, 0.64, GLASS, 0, 0.13, v);
     }
   }
-  for (let i = 0, n = Math.max(1, Math.floor(d / 3)); i < n; i++) win(g, w / 2 + 0.03, 1.6, -d / 2 + (i + 0.5) * (d / n), Math.PI / 2, null);
-  if (Math.random() < 0.4) { // garage annex
-    const gx = pick([-1, 1]) * (w / 2 + 1.7), gz = -s * (d / 2 - 2.6);
+  box(r, 0.3, 0.2, len + 2 * ov, '#8b3b27', 0, rh + 0.1, 0);
+  const chx = half * sr(0.3, 0.55) * sp([-1, 1]), chz = sr(-len / 3, len / 3), ct = rh + 0.9;
+  box(r, 0.65, ct, 0.65, sp([wc, wc, '#a4573b', '#cfcac2']), chx, ct / 2, chz);
+  box(r, 0.8, 0.1, 0.8, '#8d8a85', chx, ct + 0.05, chz);
+  if (rnd() < 0.6) { // TV antenna
+    box(r, 0.04, 1.6, 0.04, '#55585c', chx + 0.38, ct + 0.5, chz);
+    box(r, 0.03, 0.03, 1.3, '#55585c', chx + 0.38, ct + 1.25, chz);
+    for (let i = -2; i <= 2; i++) box(r, 0.55 - Math.abs(i) * 0.08, 0.02, 0.02, '#55585c', chx + 0.38, ct + 1.25, chz + i * 0.28);
+  }
+  // facades: street + back (windows, door), +x side and gables (the camera sees +x/+z faces)
+  const fz = d / 2 + 0.03, n = Math.max(2, Math.round(w / 2.7)), xs = [...Array(n)].map((_, i) => -w / 2 + (i + 0.5) * w / n);
+  const di = o.doorX !== undefined ? xs.reduce((b, x, i) => Math.abs(x + cx - o.doorX) < Math.abs(xs[b] + cx - o.doorX) ? i : b, 0) : (rnd() * n) | 0;
+  const dc = sc && sc !== '#f4f1ea' ? sc : sp(['#6b4230', '#f4f2ec', '#5d666d']), porch = o.porch ?? rnd() < 0.5;
+  for (const q of [-s, s]) {
+    const z = q * fz, rot = q > 0 ? 0 : Math.PI;
+    xs.forEach((x, i) => {
+      if (q === -s && i === di) door(g, x, z, rot, dc, porch, rm); else win(g, x, 1.5, z, rot, sc);
+      if (up) win(g, x, h - 1.5, z, rot, sc);
+    });
+    if (!along && rh > 1.7) win(g, 0, h + rh * 0.3, z, rot, sc, 0.75);
+  }
+  for (let i = 0, m = Math.max(1, Math.round(d / 3.2)); i < m; i++) for (const y of up ? [1.5, h - 1.5] : [1.5]) win(g, w / 2 + 0.03, y, -d / 2 + (i + 0.5) * d / m, Math.PI / 2, sc);
+  if (along && rh > 1.7) o.oeil ? oeil(g, w / 2 + 0.04, h + rh * 0.35, 0) : win(g, w / 2 + 0.03, h + rh * 0.3, 0, Math.PI / 2, sc, 0.75);
+  if (o.balcony && up) { // first-floor balcony with a grey X-pattern railing
+    const bw = Math.min(3.6, w - 1.2), z1 = -s * (fz + 1.1), zc = -s * (fz + 0.55);
+    box(g, bw, 0.14, 1.1, '#e4e2dc', 0, 3.0, zc);
+    box(g, bw, 0.05, 0.05, '#8d9296', 0, 4.02, z1);
+    for (const x of [-bw / 2, bw / 2]) { box(g, 0.05, 1.0, 0.05, '#8d9296', x, 3.55, z1); box(g, 0.05, 0.05, 1.1, '#8d9296', x, 4.02, zc); }
+    for (let x = -bw / 2 + 0.45; x < bw / 2; x += 0.9) for (const t of [-1, 1]) box(g, 0.03, 1.2, 0.03, '#8d9296', x, 3.52, z1).rotation.z = t * 0.72;
+  }
+  if (o.garage) { // flat-roofed garage annex on the +x side
+    const gx = w / 2 + 1.7, gz = -s * (d / 2 - 2.6);
     box(g, 3.4, 2.7, 5.2, wc, gx, 1.35, gz);
     box(g, 3.6, 0.2, 5.4, '#8d8a85', gx, 2.8, gz);
-    box(g, 2.6, 2.0, 0.08, '#e9e6de', gx, 1.0, gz - s * 2.62);
+    box(g, 2.6, 2.1, 0.08, sp(['#e9e6de', '#8d9296', '#6b4230']), gx, 1.05, gz - s * 2.62);
+  }
+  return h;
+}
+function blob(P, x, y, z, r, col, sy = 1) { const m = mesh(P, sp(BLOB), col, x, y, z); m.scale.set(r, r * sy, r); m.rotation.y = rnd() * 6; return m; }
+function tree(P, x, z, h, kind = 'green') {
+  if (kind === 'cone') return mesh(P, CONE, sp(HEDGES.thuja), x, h / 2, z).scale.set(h * 0.2, h, h * 0.2);
+  mesh(P, TRUNK, '#6b4a33', x, h * 0.3, z).scale.y = h * 0.6;
+  const cols = kind === 'red' ? REDS : GREENS;
+  for (let i = 0; i < 4; i++) blob(P, x + sr(-0.7, 0.7), h * sr(0.62, 0.82), z + sr(-0.7, 0.7), h * sr(0.17, 0.24), sp(cols));
+}
+function shrub(P, x, z, r, flowers = rnd() < 0.5) {
+  blob(P, x, r * 0.7, z, r, sp(GREENS), 0.85);
+  const c = M(sp(['#f28c28', '#f2c230', '#f4f0f4', '#d6456b', '#b784d6']));
+  if (flowers) for (let i = 0; i < 6; i++) inst(FLOWER, c, x + sr(-r, r) * 0.7, r * sr(0.9, 1.35), z + sr(-r, r) * 0.7);
+}
+function banana(P, x, z) {
+  mesh(P, TRUNK, '#7d7c4c', x, 0.9, z).scale.set(1.4, 1.8, 1.4);
+  for (let i = 0; i < 9; i++) {
+    const p = new THREE.Group(); p.position.set(x, sr(1.5, 2.1), z); p.rotation.set(0, i * 0.7 + sr(0, 0.4), sr(0.35, 1.2)); P.add(p);
+    box(p, 0.03, 1.9, 0.5, sp(['#6f9b3a', '#86ad48', '#5c8a30']), 0, 0.95, 0);
   }
 }
-function tree(P, x, z, h, red) {
-  mesh(P, new THREE.CylinderGeometry(0.14, 0.22, h * 0.55, 6), '#6b4a33', x, h * 0.27, z);
-  const col = red ? pick(REDS) : pick(GREENS);
-  for (let i = 0; i < 3; i++) {
-    const r = h * rand(0.2, 0.3);
-    mesh(P, new THREE.IcosahedronGeometry(r, 0), col, x + rand(-0.6, 0.6), h * 0.58 + i * r * 0.55, z + rand(-0.6, 0.6)).rotation.set(rand(0, 3), rand(0, 3), 0);
+function hedge(P, a, b, z, h, cols, dz) {
+  const n = Math.ceil((b - a) / (dz * 0.65)), step = (b - a) / n;
+  box(P, b - a - dz * 0.4, h * 0.75, dz * 0.9, cols[0], (a + b) / 2, h * 0.375, z);
+  for (let y = h - dz * 0.45; y > dz * 0.4; y -= dz * 0.8) for (let i = 0; i < n; i++) blob(P, a + (i + 0.5) * step + sr(-0.1, 0.1), y, z + sr(-0.12, 0.12) * dz, dz * sr(0.55, 0.68), sp(cols));
+}
+function zhedge(x, z0, z1, h, cols, dz) { // same hedge running along z
+  const g = new THREE.Group(), l = Math.abs(z1 - z0) / 2; g.position.set(x, 0, (z0 + z1) / 2); g.rotation.y = Math.PI / 2; S.add(g);
+  hedge(g, -l, l, 0, h, cols, dz);
+}
+function poppies(a, b, z, gate) { // California poppies at the foot of the wall
+  for (let x = a; x < b; x += sr(0.2, 0.45)) {
+    if (gate !== undefined && Math.abs(x - gate) < 2) continue;
+    inst(TUFT, M('#86a55c'), x, 0.22, z + sr(-0.08, 0.08), 0.16, 0.2);
+    if (rnd() < 0.7) inst(FLOWER, M('#f5891f'), x + sr(-0.1, 0.1), sr(0.34, 0.46), z + sr(-0.1, 0.1));
   }
 }
-function shrub(P, x, z, r) {
-  const m = mesh(P, new THREE.IcosahedronGeometry(r, 0), pick(GREENS), x, r * 0.7, z);
-  m.rotation.set(rand(0, 3), rand(0, 3), 0);
-  if (Math.random() < 0.5) for (let i = 0; i < 4; i++) mesh(P, new THREE.IcosahedronGeometry(0.1, 0), pick(['#f28c28', '#f2c230', '#e8e2f0', '#d6456b']), x + rand(-r, r) * 0.7, r * rand(0.9, 1.4), z + rand(-r, r) * 0.7);
+function pillar(x, z, st) {
+  const ph = st.ph ?? 1.8;
+  box(S, 0.44, ph, 0.44, st.pil, x, ph / 2, z);
+  box(S, 0.54, 0.09, 0.54, st.cap, x, ph + 0.04, z);
+  if (st.ball) mesh(S, BALL, st.ball, x, ph + 0.22, z);
+}
+function fence(a, b, s, st, endPillar) {
+  const z = s * WALL_Z, m = (a + b) / 2, len = b - a, n = Math.max(1, Math.round(len / 2.6)), pw = len / n;
+  box(S, len, 0.9, 0.3, st.wall, m, 0.45, z);
+  box(S, len, 0.07, 0.4, st.cap, m, 0.93, z);
+  for (let i = 0; i < n + (endPillar ? 1 : 0); i++) pillar(a + i * pw, z, st);
+  if (st.bar) {
+    const mat = M(st.bar, { metalness: 0.4, roughness: 0.5 });
+    for (let x = a + 0.3; x < b - 0.2; x += 0.14) { const t = (x - a) % pw; if (t > 0.3 && t < pw - 0.3) inst(st.wave ? WAVE : BAR, mat, x, 1.34, z); }
+    for (const y of [1.0, 1.7]) box(S, len, 0.05, 0.05, mat, m, y, z);
+  }
+  if (st.slat) for (let i = 0; i < n; i++) for (let x = a + i * pw + 0.3; x < a + (i + 1) * pw - 0.28; x += 0.13) {
+    const hh = 0.95 + 0.22 * Math.sin(Math.PI * (x - a - i * pw) / pw);
+    inst(SLAT, M(st.slat), x, 0.96 + hh / 2, z, hh);
+  }
+  if (st.hedge === 'laurel') hedge(S, a, b, z + s * 1.6, 4, HEDGES.laurel, 1.8);
+  else if (st.hedge) hedge(S, a, b, z + s * 0.75, 1.7, HEDGES[st.hedge], 0.9);
+}
+function plate(x, y, z, txt) { // blue enamel house-number plate
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.22), new THREE.MeshStandardMaterial({ roughness: 0.4, map: canvasTex(64, g => {
+    g.fillStyle = '#1d4c9a'; g.fillRect(0, 0, 64, 64); g.strokeStyle = '#fff'; g.lineWidth = 3; g.strokeRect(5, 8, 54, 48);
+    g.fillStyle = '#fff'; g.font = '700 30px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 32, 34);
+  }) }));
+  m.position.set(x, y, z); m.rotation.y = z > 0 ? Math.PI : 0; S.add(m);
+}
+function gate(g, s, lot) {
+  const st = lot.st, z = s * WALL_Z, gz = z + s * 0.32, gx = g + 2.5, mat = M(st.gate, { metalness: 0.4, roughness: 0.5 });
+  box(S, 3.6, 0.85, 0.05, mat, gx, 0.55, gz); // sliding leaf, pulled mostly open behind the wall
+  for (const y of [0.98, 1.72]) box(S, 3.6, 0.06, 0.07, mat, gx, y, gz);
+  for (let x = gx - 1.7; x < gx + 1.75; x += 0.14) inst(st.wave ? WAVE : BAR, mat, x, 1.35, gz);
+  box(S, 5.6, 0.03, 0.08, '#6d6f71', g + 1, 0.015, gz);
+  tbox(S, 3.6, 0.02, WALL_Z - CURB_Z - 0.3, COBBLE, g, 0.16, s * (CURB_Z + WALL_Z) / 2); // pavés on the sidewalk
+  const dl = (s > 0 ? 13.2 : 11.5) - WALL_Z - 0.3;
+  tbox(S, 3.2, 0.03, dl, COBBLE, g, 0.015, s * (WALL_Z + 0.15 + dl / 2));
+  const fz = s * (WALL_Z - 0.27);
+  box(S, 0.34, 0.42, 0.1, lot.mail ?? sp(['#3a3d40', '#2d4b3b', '#6b4a33', '#f1efe9']), g - 1.8, 1.2, fz); // letterbox
+  box(S, 0.5, 0.64, 0.08, '#f4f3ef', g - 2.6, 0.44, s * (WALL_Z - 0.18)); // electric meter box
+  box(S, 0.36, 0.05, 0.09, '#b9b6af', g - 2.6, 0.62, s * (WALL_Z - 0.18));
+  if (lot.num) plate(g + 1.8, 1.4, fz, lot.num);
+}
+// lot boundaries per side; heroes pin a house/boundary to the lot containing x
+const CUTS = { 1: [-52, -46, -34, -22, -10, 2, 13.5, 25, 36, 46, 52], [-1]: [-52, -39, -27, -15.5, -3, 10, 21, 32, 43, 52] };
+const LOT_STYLES = ['green', 'anth', 'hedge', 'black', 'thuja', 'photinia', 'green'];
+const HEROES = [
+  { s: -1, x: 3.6, style: 'green', num: '14', mail: '#2d5a43', house: { wall: '#efe1c3', shut: '#5b3626', along: true, porch: true, velux: true, h: 5.7, w: 8.8, d: 8 } }, // Erika
+  { s: 1, x: -3.6, style: 'anth', num: '11', mail: '#3a3d40', house: { wall: '#f6f4ef', shut: '#b3babf', along: false, h: 5.8, w: 7.4, d: 9.5 } }, // Jack
+  { s: -1, x: -33, style: 'pink', num: '8', mail: '#a9cfc0', poppies: true, house: { wall: '#e6a08a', shut: null, along: true, oeil: true, porch: true, h: 3.9, w: 8.4, d: 8 } }, // red-haired neighbour
+  { s: -1, x: -9, style: 'laurel' },
+  { s: -1, x: -21, banana: true, house: { h: 5.8, along: true } },
+  { s: -1, x: 26, house: { balcony: true, wall: '#f5f3ee', shut: null, along: false, h: 5.9 } },
+];
+function row(s, cuts, gates = [], main = true) {
+  const zf = s > 0 ? 13.2 : 11.5, lots = cuts.slice(0, -1).map((x0, i) => {
+    const x1 = cuts[i + 1], hero = (main && HEROES.find(h => h.s === s && h.x > x0 && h.x < x1)) || {};
+    return { x0, x1, ...hero, st: STYLES[hero.style ?? sp(LOT_STYLES)], gate: gates.find(g => g > x0 && g < x1) };
+  });
+  const xs = [...new Set([...cuts, ...gates.flatMap(g => [g - 1.8, g + 1.8])])].sort((p, q) => p - q);
+  for (let i = 0; i < xs.length - 1; i++) {
+    const a = xs[i], b = xs[i + 1], lot = lots.find(l => (a + b) / 2 > l.x0 && (a + b) / 2 < l.x1), g = gates.find(g => Math.abs(g - (a + b) / 2) < 0.1);
+    if (g !== undefined) gate(g, s, lot); else fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01));
+  }
+  for (const l of lots) {
+    const lw = l.x1 - l.x0, cx = (l.x0 + l.x1) / 2, free = x => l.gate === undefined || Math.abs(x - l.gate) > 2.6;
+    if (lw > 9) {
+      const o = { doorX: l.gate, ...l.house };
+      o.w ??= Math.min(sr(7.5, 10), lw - 3); o.garage ??= lw - o.w > 7.2 && rnd() < 0.6;
+      const h = house(S, cx + (l.house ? 0 : sr(-0.5, 0.5)), s, zf, o);
+      if (main && s < 0) FRONTS.push(V3(cx + sr(-2, 2), h - 0.5, s * zf + 0.05));
+    }
+    // front garden: only low stuff on the camera side (s>0) so the street stays visible
+    for (let i = 0; i < 3; i++) {
+      const x = sr(l.x0 + 1, l.x1 - 1);
+      if (!free(x)) continue;
+      if (s < 0 && !l.house && rnd() < 0.55) tree(S, x, s * sr(9, 10.3), sr(4, 6.5), sp(['green', 'cone', Math.abs(x) > 20 ? 'red' : 'green']));
+      else shrub(S, x, s * sr(8.4, 10.3), sr(0.5, 0.85));
+    }
+    if (l.banana) banana(S, l.x0 + 2.5, s * 8.8);
+    if (s < 0 && (l.poppies || rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate);
+    if (l.x1 < cuts.at(-1)) zhedge(l.x1, s * (WALL_Z + 0.4), s * (zf - 0.3), 1.2, sp(Object.values(HEDGES).slice(0, 3)), 0.7); // between front gardens
+    tree(S, sr(l.x0 + 1, l.x1 - 1), s * sr(22, 26), sr(4.5, 7.5), sp(['green', 'green', 'red', 'cone']));
+  }
+}
+function roadSign(x, z, rotY, draw) {
+  box(S, 0.08, 2.9, 0.08, '#9aa0a4', x, 1.45, z);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.05), new THREE.MeshStandardMaterial({ map: canvasTex(128, draw), alphaTest: 0.5, roughness: 0.5 }));
+  m.position.set(x + Math.sin(rotY) * 0.05, 2.5, z + Math.cos(rotY) * 0.05); m.rotation.y = rotY; S.add(m);
 }
 const binBody = new THREE.CylinderGeometry(0.46, 0.38, 1.0, 4);
 function buildBin(P, body, lid) {
@@ -207,109 +412,65 @@ function buildWorld() {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map, roughness: 0.95 }));
     m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true; scene.add(m);
   };
-  ground(500, 500, grassTex, 0, -0.02, 0);
-  ground(2 * END_X + 40, 2 * CURB_Z, asphalt(40, 3), 0, 0, 0);
+  ground(600, 600, grassTex, 0, -0.02, 0);
+  ground(200, 2 * CURB_Z, asphalt(48, 3), 0, 0, 0);
   for (const x of [-58, 58]) ground(10, 400, asphalt(3, 100), x, 0.004, 0);
 
-  const bars = {};
   for (const s of [1, -1]) {
-    // sidewalk + curb
-    const sw = new THREE.Mesh(boxGeo(2 * STREET_X, 0.15, WALL_Z - CURB_Z), new THREE.MeshStandardMaterial({ map: pavingTex, roughness: 0.95 }));
-    sw.position.set(0, 0.075, s * (CURB_Z + WALL_Z) / 2); sw.receiveShadow = true; S.add(sw);
-    box(S, 2 * STREET_X, 0.2, 0.25, '#cfcac0', 0, 0.1, s * CURB_Z);
-
-    // parking markings: dashed lane edge + end lines + slot ticks
-    const xs = SLOT_XS[s], groups = [[xs[0]]];
+    // asphalt sidewalks, granite kerbs, paved gutters
+    for (const [a, b] of [[-STREET_X, STREET_X], [63, 100], [-100, -63]]) {
+      tbox(S, b - a, 0.15, WALL_Z - CURB_Z, WALK, (a + b) / 2, 0.075, s * (CURB_Z + WALL_Z) / 2);
+      box(S, b - a, 0.2, 0.25, '#bdbab2', (a + b) / 2, 0.1, s * CURB_Z);
+      box(S, b - a, 0.012, 0.35, '#7b7872', (a + b) / 2, 0.004, s * (CURB_Z - 0.3));
+    }
+    // parking markings: dashed lane edge, short ticks between bays, slanted lines at both ends of each group
+    const xs = SLOT_XS[s], groups = [[xs[0]]], edge = s * (SLOT_Z - 1.15), W = '#efefe9';
     for (let i = 1; i < xs.length; i++) (xs[i] - xs[i - 1] > SLOT_LEN + 0.1 ? groups[groups.push([]) - 1] : groups.at(-1)).push(xs[i]);
-    const edge = s * (SLOT_Z - 1.15);
     for (const gp of groups) {
       const a = gp[0] - SLOT_LEN / 2, b = gp.at(-1) + SLOT_LEN / 2;
-      for (let x = a + 0.3; x < b; x += 1.2) box(S, 0.6, 0.01, 0.13, '#efefe9', x, 0.006, edge);
-      for (const x of [a, b]) box(S, 0.13, 0.01, 2.2, '#efefe9', x, 0.006, edge + s * 1.1);
-      for (let i = 1; i < gp.length; i++) box(S, 0.1, 0.01, 0.5, '#efefe9', gp[i] - SLOT_LEN / 2, 0.006, edge + s * 0.25);
+      for (let x = a + 0.3; x < b; x += 1.2) box(S, 0.6, 0.01, 0.12, W, x, 0.006, edge);
+      for (const [x, k] of [[a, -1], [b, 1]]) box(S, 2.54, 0.01, 0.12, W, x + k * 0.75, 0.006, edge + s * 1.02).rotation.y = -k * s * 0.94;
+      for (let i = 1; i < gp.length; i++) box(S, 0.1, 0.01, 0.5, W, gp[i] - SLOT_LEN / 2, 0.006, edge + s * 0.25);
     }
-
-    // lots: walls, fences, gates, houses, gardens
-    const lots = [];
-    for (let x = -STREET_X; x < STREET_X - 6;) {
-      const w = Math.min(rand(11, 15), STREET_X - x);
-      lots.push({ x0: x, x1: x + w, wall: pick(LOT_WALLS), fence: s < 0 || Math.random() < 0.8 ? pick(FENCES) : '#26292d' });
-      x += w;
+    // lots (walls, gates, houses, gardens), a few beyond the cross streets, then a back row
+    row(s, CUTS[s], GATES[s]);
+    row(s, [63, 76, 88], [], false); row(s, [-88, -76, -63], [], false);
+    for (const [x, k] of [[-52, 1], [52, -1], [-63, -1], [63, 1]]) {
+      box(S, 0.3, 0.9, 20, '#ece6d8', x, 0.45, s * (WALL_Z + 10));
+      zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * (WALL_Z + 20), 1.7, HEDGES.privet, 0.9);
     }
-    lots.at(-1).x1 = STREET_X;
-    const gates = GATES[s], z = s * WALL_Z;
-    const cuts = [...new Set([-STREET_X, STREET_X, ...lots.flatMap(l => [l.x0, l.x1]), ...gates.flatMap(g => [g - 1.8, g + 1.8])])].sort((p, q) => p - q);
-    for (let i = 0; i < cuts.length - 1; i++) {
-      const a = cuts[i], b = cuts[i + 1], m = (a + b) / 2, len = b - a;
-      if (len < 0.05) continue;
-      const lot = lots.find(l => m >= l.x0 && m <= l.x1);
-      const gate = gates.find(g => Math.abs(m - g) < 1.8);
-      if (gate !== undefined) {
-        const gc = lot.fence === 'hedge' || lot.fence === '#dfe7e4' ? '#2f4a3c' : lot.fence;
-        box(S, len, 1.55, 0.08, gc, m, 0.85, z);
-        box(S, len, 0.12, 0.12, gc, m, 1.6, z);
-        box(S, len, 0.02, 4.2, '#bdb5a5', m, 0.01, s * (WALL_Z + 2.2)); // driveway
-        continue;
-      }
-      box(S, len, 0.95, 0.35, lot.wall, m, 0.475, z);
-      box(S, len, 0.08, 0.45, '#d9d4c9', m, 0.99, z);
-      if (lot.fence === 'hedge') {
-        box(S, len, 1.3, 1.0, '#3f6b30', m, 0.65, z + s * 0.75);
-        for (let x = a + 0.4; x < b; x += 0.8) mesh(S, new THREE.IcosahedronGeometry(rand(0.55, 0.75), 0), pick(['#3f6b30', '#46753a', '#4f7a35']), x, rand(1.4, 1.8), z + s * rand(0.6, 0.9)).rotation.set(rand(0, 3), rand(0, 3), 0);
-        (bars['#7a2e35'] ||= []).push(...Array.from({ length: Math.floor(len / 0.16) }, (_, k) => [a + 0.1 + k * 0.16, z]));
-        box(S, len, 0.06, 0.06, '#7a2e35', m, 1.72, z);
-      } else {
-        (bars[lot.fence] ||= []).push(...Array.from({ length: Math.floor(len / 0.16) }, (_, k) => [a + 0.1 + k * 0.16, z]));
-        box(S, len, 0.06, 0.06, lot.fence, m, 1.72, z);
-        box(S, len, 0.06, 0.06, lot.fence, m, 1.08, z);
-      }
-      for (const px of [a, b]) {
-        box(S, 0.5, 1.85, 0.5, lot.wall, px, 0.925, z);
-        box(S, 0.62, 0.1, 0.62, '#d9d4c9', px, 1.9, z);
-      }
-    }
-    for (const l of lots) {
-      const lw = l.x1 - l.x0, w = rand(7, Math.min(10.5, lw - 2.5)), front = s > 0 ? 13.2 : 11.5;
-      house(S, (l.x0 + l.x1) / 2 + rand(-0.8, 0.8), s, front, w, rand(7, 9), rand(4.6, 6.8));
-      // front garden: small stuff on the camera side (s>0) so the street stays visible
-      for (let i = 0; i < 3; i++) {
-        const tx = rand(l.x0 + 1, l.x1 - 1);
-        if (gates.some(g => Math.abs(tx - g) < 2.5)) continue;
-        if (s < 0 && Math.random() < 0.5) tree(S, tx, s * rand(9, 10.5), rand(4, 6.5), Math.random() < 0.35);
-        else shrub(S, tx, s * rand(8.5, 10.5), rand(0.5, 0.9));
-      }
-      tree(S, rand(l.x0 + 1, l.x1 - 1), s * rand(22, 26), rand(4.5, 7.5), Math.random() < 0.25);
-    }
-    // back row of houses to fill the neighbourhood
-    for (let x = -68; x < 70; x += rand(12, 16)) house(S, x, s, 30, rand(7, 10), rand(7, 9), rand(4.6, 6.5), false);
-    // decor wheelie bins next to gates
-    for (const g of gates) if (Math.random() < 0.7) buildBin(S, '#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])).position.set(g + 2.4, 0.15, s * (WALL_Z - 0.6));
-    // zebra crossings near both ends
-    for (const x of [-49, 49]) for (let k = -4; k <= 4; k++) box(S, 3, 0.01, 0.55, '#efefe9', x, 0.006, k * 1.05);
+    for (let x = -84; x < 86; x += sr(12, 16)) if (Math.abs(Math.abs(x) - 58) > 9) house(S, x, s, 30, { porch: false, velux: false });
+    // road signs: "sens interdit" facing drivers at the +x end, blue "sens unique" at the -x entrance
+    roadSign(50, s * 5.75, Math.PI / 2, g => {
+      g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
+      g.fillStyle = '#c8102e'; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.fill();
+      g.fillStyle = '#fff'; g.fillRect(24, 54, 80, 20);
+    });
+    roadSign(-50.5, s * 5.75, 0, g => {
+      g.fillStyle = '#fff'; g.fillRect(0, 0, 128, 128); g.fillStyle = '#1f5fbf'; g.fillRect(6, 6, 116, 116);
+      g.fillStyle = '#fff'; g.fillRect(24, 56, 54, 16); g.beginPath(); g.moveTo(72, 36); g.lineTo(106, 64); g.lineTo(72, 92); g.fill();
+    });
   }
-  for (const [color, list] of Object.entries(bars)) {
-    const im = new THREE.InstancedMesh(boxGeo(0.045, 0.72, 0.045), M(color, { metalness: 0.4, roughness: 0.5 }), list.length);
-    const m4 = new THREE.Matrix4();
-    list.forEach(([x, z], i) => im.setMatrixAt(i, m4.makeTranslation(x, 1.38, z)));
-    im.castShadow = true;
-    scene.add(im);
-  }
+  // zebra crossings near both ends, one-way arrows painted in the lane
+  for (const x of [-49, 49]) for (let k = -4; k <= 4; k++) box(S, 3, 0.01, 0.55, '#efefe9', x, 0.006, k * 1.05);
+  const arrow = new THREE.ShapeGeometry(new THREE.Shape([V2(-1.6, -0.12), V2(0.5, -0.12), V2(0.5, -0.42), V2(1.6, 0), V2(0.5, 0.42), V2(0.5, 0.12), V2(-1.6, 0.12)])).rotateX(-Math.PI / 2);
+  for (const x of [-40, 0, 40]) mesh(S, arrow, '#efefe9', x, 0.008, 0);
 
-  // wooden utility poles, lamps and droopy overhead wires (far side, like the photos)
-  const poleXs = [-46, -26, -6, 14, 34], pz = -6.8;
+  // wooden utility poles with arm-mounted lamps, droopy overhead wires and service drops (far side, like the photos)
+  const poleXs = [-46, -26, -6, 14, 34], pz = -6.85, WIRE = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
+  const wire = (p, q, sag) => scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([...Array(13)].map((_, k) => V3().lerpVectors(p, q, k / 12).setY(p.y + (q.y - p.y) * k / 12 - Math.sin(Math.PI * k / 12) * sag))), WIRE));
   for (const x of poleXs) {
-    mesh(S, new THREE.CylinderGeometry(0.11, 0.15, 8.6, 7), '#7a5a3c', x, 4.3, pz);
-    box(S, 0.12, 0.12, 1.6, '#6a4d33', x, 8.1, pz);
-    box(S, 0.08, 0.08, 2.2, '#3a3d40', x, 6.4, pz + 1.1);
-    box(S, 0.6, 0.16, 0.42, LAMP, x, 6.3, pz + 2.2);
+    mesh(S, new THREE.CylinderGeometry(0.11, 0.16, 8.8, 7), '#6f5238', x, 4.4, pz);
+    box(S, 0.12, 0.12, 1.7, '#5e4530', x, 8.2, pz);
+    for (const oz of [-0.65, 0, 0.65]) box(S, 0.07, 0.14, 0.07, '#e8e6e0', x, 8.33, pz + oz);
+    box(S, 0.07, 0.07, 2.3, '#44474a', x, 6.6, pz + 1.1).rotation.x = -0.12;
+    box(S, 0.62, 0.14, 0.42, '#44474a', x, 6.78, pz + 2.25);
+    box(S, 0.5, 0.05, 0.32, LAMP, x, 6.69, pz + 2.25);
+    const f = FRONTS.reduce((b, p) => Math.abs(p.x - x) < Math.abs(b.x - x) ? p : b);
+    if (Math.abs(f.x - x) < 9) wire(V3(x, 7.9, pz), f, 0.35);
   }
-  const wireMat = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
   const wx = [-80, ...poleXs, 80];
-  for (let i = 0; i < wx.length - 1; i++) for (const oz of [-0.65, 0, 0.65]) {
-    const pts = [];
-    for (let k = 0; k <= 16; k++) { const t = k / 16; pts.push(new THREE.Vector3(wx[i] + (wx[i + 1] - wx[i]) * t, 8.15 - Math.sin(Math.PI * t) * 0.9, pz + oz)); }
-    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat));
-  }
+  for (let i = 0; i < wx.length - 1; i++) for (const oz of [-0.65, 0, 0.65]) wire(V3(wx[i], 8.4, pz + oz), V3(wx[i + 1], 8.4, pz + oz), 0.9);
 
   // blue Paris-style street sign on the far wall
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.75), new THREE.MeshStandardMaterial({ map: canvasTex(512, (g) => {
@@ -320,10 +481,10 @@ function buildWorld() {
     g.fillStyle = '#fff'; g.font = '700 30px Fredoka, sans-serif'; g.textAlign = 'center';
     g.fillText('RUE', 256, 60); g.font = '700 50px Fredoka, sans-serif'; g.fillText("D'AGUESSEAU", 256, 115);
   }), roughness: 0.5 }));
-  sign.position.set(-48.6, 1.45, -WALL_Z + 0.21);
+  sign.position.set(-50.45, 1.45, -WALL_Z + 0.21);
   scene.add(sign);
 
-  // merge static meshes by material
+  // merge static meshes by material; repeated bits become instanced meshes
   S.updateMatrixWorld(true);
   const buckets = new Map();
   S.traverse(o => {
@@ -339,6 +500,12 @@ function buildWorld() {
     const merged = new THREE.Mesh(mergeGeometries(list), m);
     merged.castShadow = merged.receiveShadow = true;
     scene.add(merged);
+  }
+  for (const { geo, mat, list } of INST.values()) {
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((m, i) => im.setMatrixAt(i, m));
+    im.castShadow = im.receiveShadow = true;
+    scene.add(im);
   }
 }
 buildWorld();
