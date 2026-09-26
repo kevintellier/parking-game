@@ -1,51 +1,256 @@
 // Character & vehicle meshes, no gameplay. Conventions: metres, y up, feet/wheels at y=0, model faces +x.
-// Builders return fresh objects and do NOT add them to the scene.
+// Builders return fresh objects and do NOT add them to the scene. Geometries, materials and textures are shared.
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-const mats = {};
-const M = (color, o = {}) => mats[color + JSON.stringify(o)] ||= new THREE.MeshStandardMaterial({ color, roughness: 0.85, flatShading: true, ...o });
-function add(parent, geo, color, x = 0, y = 0, z = 0) {
-  const m = new THREE.Mesh(geo, color.isMaterial ? color : M(color));
+const PI = Math.PI, cache = {};
+const once = (k, f) => cache[k] ||= f();
+const M = (color, o = {}) => once(color + Object.entries(o).map(([k, v]) => k + (v?.uuid ?? v)), () => new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...o }));
+const G = (T, ...a) => once(T.name + a, () => new T(...a));
+// unit spheres (big / small / tiny), scaled per mesh
+const S = () => G(THREE.SphereGeometry, 1, 12, 10), s = () => G(THREE.SphereGeometry, 1, 8, 6), t = () => G(THREE.SphereGeometry, 1, 6, 4);
+const bump = (x, c, w) => Math.exp(-(((x - c) / w) ** 2));
+function add(parent, geo, mat, x = 0, y = 0, z = 0, sc) {
+  const m = new THREE.Mesh(geo, typeof mat === 'string' ? M(mat) : mat);
   m.position.set(x, y, z);
+  if (sc) Array.isArray(sc) ? m.scale.set(...sc) : m.scale.setScalar(sc);
   m.castShadow = m.receiveShadow = true;
   parent.add(m);
   return m;
 }
+const pivot = (parent, x, y, z) => { const p = new THREE.Group(); p.position.set(x, y, z); parent.add(p); return p; };
+const tex = (k, w, h, draw) => once(k, () => {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+});
+// unit sphere pushed around by f(v); keeps sphere UVs, so u=0.5 is the front (+x) — handy for chest decals
+const blob = (k, f) => once('blob' + k, () => {
+  const geo = new THREE.SphereGeometry(1, 20, 14), p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { f(v.fromBufferAttribute(p, i)); p.setXYZ(i, v.x, v.y, v.z); }
+  geo.computeVertexNormals(); return geo;
+});
+// knit top with a V opening at the front showing what's underneath (inner(c) paints the V)
+const knit = (k, col, dark, inner) => tex(k, 512, 256, (c, w, h) => {
+  c.fillStyle = col; c.fillRect(0, 0, w, h); c.fillStyle = dark;
+  for (let x = 0; x < w; x += 6) c.fillRect(x, 0, 2, h);
+  c.fillRect(0, h - 14, w, 14); // ribbed hem
+  c.save(); c.beginPath(); c.moveTo(w * 0.43, 0); c.lineTo(w * 0.57, 0); c.lineTo(w * 0.505, h * 0.55); c.lineTo(w * 0.495, h * 0.55); c.clip(); inner(c, w, h); c.restore();
+});
 
-// Person contract: { g, legs: [hipL, hipR], arms: [shoulderL, shoulderR] }.
-// legs/arms are pivot Groups at hip/shoulder; the game swings them with rotation.z (walk cycle).
-function person({ shirt, pants, skin = '#f0c39b', hair }) {
-  const g = new THREE.Group(), legs = [], arms = [];
-  for (const z of [-0.11, 0.11]) {
-    const hip = new THREE.Group(); hip.position.set(0, 0.62, z); g.add(hip); legs.push(hip);
-    add(hip, new THREE.BoxGeometry(0.16, 0.62, 0.16), pants, 0, -0.31, 0);
+// ───────────── people: { g, legs: [hipL, hipR], arms: [shoulderL, shoulderR] }; pivots swing on rotation.z (+ = forward)
+function legs(g, { y, z, r, pants, shoe, sole = '#3a2a1c', foot = 0.25, cuff }) {
+  return [-z, z].map(zz => {
+    const hip = pivot(g, 0, y, zz), l = y - 0.08;
+    add(hip, t(), pants, 0, 0, 0, r * 1.05);
+    add(hip, G(THREE.CylinderGeometry, r, r * 0.82, l, 8), pants, 0, -l / 2, 0);
+    if (cuff) add(hip, G(THREE.CylinderGeometry, r * 0.95, r * 0.95, 0.07, 8), cuff, 0, -l + 0.03, 0);
+    add(hip, G(RoundedBoxGeometry, foot, 0.11, r * 1.9, 1, 0.045), shoe, foot * 0.22, -y + 0.075, 0);
+    add(hip, G(THREE.BoxGeometry, foot + 0.005, 0.03, r * 1.9 + 0.005), sole, foot * 0.22, -y + 0.015, 0);
+    return hip;
+  });
+}
+function arms(parent, { y, z, len, r, sleeve, sleeveLen, arm, hand, splay = 0.14 }) {
+  return [-z, z].map(zz => {
+    const sh = pivot(parent, 0, y, zz), a = pivot(sh, 0, 0, 0); a.rotation.x = -Math.sign(zz) * splay;
+    add(a, s(), sleeve, 0, 0, 0, r * 1.2);
+    add(a, G(THREE.CylinderGeometry, r * 1.25, r * 1.15, sleeveLen, 8), sleeve, 0, -sleeveLen / 2, 0);
+    add(a, G(THREE.CylinderGeometry, r, r * 0.8, len, 8), arm, 0, -len / 2, 0);
+    add(a, t(), hand, 0.01, -len - r * 0.55, 0, [r * 0.85, r * 1.2, r * 0.7]);
+    return sh;
+  });
+}
+function head(parent, { x = 0, y, r, skin, nose = skin, noseR = 0.2 }) {
+  const h = pivot(parent, x, y, 0);
+  add(h, S(), skin, 0, 0, 0, [r, r * 1.08, r * 0.96]);
+  add(h, s(), nose, r * 0.97, -r * 0.1, 0, r * noseR);
+  for (const k of [-1, 1]) {
+    add(h, t(), '#fbfbf8', r * 0.84, r * 0.14, k * r * 0.35, r * 0.13);
+    add(h, t(), '#2e241e', r * 0.95, r * 0.14, k * r * 0.35, r * 0.075);
+    add(h, t(), skin, -r * 0.05, -r * 0.02, k * r * 0.95, [r * 0.16, r * 0.26, r * 0.12]);
   }
-  add(g, new THREE.CapsuleGeometry(0.22, 0.38, 4, 10), shirt, 0, 0.98, 0);
-  for (const z of [-0.29, 0.29]) {
-    const sh = new THREE.Group(); sh.position.set(0, 1.2, z); g.add(sh); arms.push(sh);
-    add(sh, new THREE.BoxGeometry(0.12, 0.5, 0.12), shirt, 0, -0.25, 0);
+  return h;
+}
+// hair/beard shell: partial sphere around the head; rot = [phiStart, phiLength, thetaStart, thetaLength] (phi = PI is the face)
+const shell = (h, r, rot, sc, col, x = 0, y = 0) => add(h, G(THREE.SphereGeometry, 1, 14, 8, ...rot), col, x, y, 0, sc.map(v => v * r));
+
+// Erika — the player (erika.png, camion.png): stocky 60-ish, huge belly, silver hair, grey beard, black glasses, "Australia" tee
+export function buildErika() {
+  const g = new THREE.Group(), skin = '#eaa98f', r = 0.145, jeans = '#4f7db4', olive = '#6f7d45';
+  const lg = legs(g, { y: 0.66, z: 0.125, r: 0.1, pants: jeans, cuff: '#6892c4', shoe: '#7a4e2a' });
+  add(g, s(), jeans, -0.02, 0.74, 0, [0.18, 0.15, 0.25]);
+  add(g, G(THREE.CylinderGeometry, 1, 1, 1, 16), '#3b2a1e', -0.02, 0.83, 0, [0.19, 0.05, 0.26]); // belt, mostly under the belly
+  const tee = M('#ffffff', { map: tex('aus', 1024, 512, (c, w, h) => {
+    c.fillStyle = olive; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#414b32'; c.font = 'italic bold 60px "Brush Script MT", "Segoe Script", "URW Chancery L", cursive';
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('Australia', w / 2, h * 0.37);
+  }) });
+  add(g, blob('erika', v => {
+    const b = bump(v.y, -0.3, 0.5), f = Math.max(0, v.x) ** 0.7;
+    v.set(v.x * 0.21 * (1 + 1.25 * b * f), v.y * 0.35 - 0.07 * b * f, v.z * 0.26 * (1 + 0.2 * b + 0.75 * bump(v.y, 0.72, 0.28)));
+  }), tee, 0, 1.05, 0);
+  add(g, G(THREE.CylinderGeometry, 0.09, 0.11, 0.14, 12), skin, 0, 1.38, 0);
+  add(g, G(THREE.TorusGeometry, 0.1, 0.018, 4, 12), '#5f6c3a', 0, 1.35, 0).rotation.x = PI / 2; // crew neck
+  const am = arms(g, { y: 1.27, z: 0.29, len: 0.5, r: 0.078, sleeve: olive, sleeveLen: 0.19, arm: skin, hand: skin, splay: 0.2 });
+  const h = head(g, { x: 0.02, y: 1.49, r, skin, nose: '#e59c86', noseR: 0.2 });
+  const hair = '#d2d3cf', beard = '#d6d6d2';
+  shell(h, r, [0, 2 * PI, 0, 1.35], [1.07, 1.12, 1.04], hair, -0.012, 0.012).rotation.z = 0.5;
+  add(h, s(), hair, r * 0.45, r * 0.82, 0, [r * 0.55, r * 0.3, r * 0.8]).rotation.z = -0.35; // swept-back front
+  shell(h, r, [PI / 2, PI, 1.82, 1.2], [1.07, 1.12, 1.03], beard);
+  for (const k of [-1, 1]) add(h, t(), beard, r * 0.12, -r * 0.08, k * r * 0.9, [r * 0.25, r * 0.4, r * 0.12]); // sideburns
+  add(h, s(), '#c4c4c0', r * 0.95, -r * 0.3, 0, [r * 0.14, r * 0.11, r * 0.36]); // moustache
+  const rim = once('rim', () => new THREE.TorusGeometry(1, 0.25, 4, 4).rotateZ(PI / 4).rotateY(PI / 2));
+  for (const k of [-1, 1]) {
+    add(h, rim, '#121212', r * 1.06, r * 0.14, k * r * 0.4, [r * 0.1, r * 0.2, r * 0.32]);
+    add(h, G(THREE.BoxGeometry, r * 1.05, r * 0.07, r * 0.06), '#121212', r * 0.5, r * 0.17, k * r * 0.8).rotation.y = k * 0.29;
+    add(h, G(THREE.BoxGeometry, r * 0.12, r * 0.09, r * 0.3), '#8f8f8b', r * 0.98, r * 0.44, k * r * 0.4).rotation.x = -k * 0.15;
   }
-  add(g, new THREE.SphereGeometry(0.19, 12, 10), skin, 0, 1.46, 0);
-  add(g, new THREE.SphereGeometry(0.2, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), hair, 0, 1.5, 0);
+  add(h, G(THREE.BoxGeometry, r * 0.06, r * 0.05, r * 0.18), '#121212', r * 1.06, r * 0.18, 0);
   g.scale.setScalar(1.3);
-  return { g, legs, arms };
+  return { g, legs: lg, arms: am };
 }
 
-// Erika — the player (see erika.png). PLACEHOLDER: replaced by the models agent.
-export const buildErika = () => person({ shirt: '#6b7a3e', pants: '#4a6a93', hair: '#c9c9c9' });
-// Red-haired neighbour who wheels bins back onto the sidewalk. PLACEHOLDER.
-export const buildRedhead = () => person({ shirt: '#7d5ba6', pants: '#2d3440', hair: '#c1440e' });
-// Jack, the old neighbour who helps Erika. PLACEHOLDER.
-export const buildJack = () => person({ shirt: '#b59b72', pants: '#5a5047', hair: '#eeeeee' });
+// Red-haired neighbour who wheels bins back onto the sidewalk: big copper curls, teal cardigan, yellow rubber gloves
+export function buildRedhead() {
+  const g = new THREE.Group(), skin = '#f5cdb3', r = 0.118, jeans = '#27304a', teal = '#1e8f8a', glove = M('#f4c91c', { roughness: 0.35 });
+  const lg = legs(g, { y: 0.74, z: 0.085, r: 0.074, pants: jeans, shoe: '#f4f4ef', sole: '#cfd2d2', foot: 0.22 });
+  add(g, t(), jeans, 0, 0.8, 0, [0.14, 0.12, 0.185]);
+  const cardi = M('#ffffff', { map: knit('cardi', teal, '#1a7f7a', (c, w, h) => { c.fillStyle = '#f3ead8'; c.fillRect(0, 0, w, h); }) });
+  add(g, blob('redhead', v => {
+    const f = Math.max(0, v.x);
+    v.set(v.x * 0.13 * (1 + 0.45 * bump(v.y, 0.25, 0.3) * f), v.y * 0.3, v.z * 0.18 * (1 - 0.16 * bump(v.y, -0.35, 0.35) + 0.35 * bump(v.y, 0.75, 0.3)));
+  }), cardi, 0, 1.1, 0);
+  add(g, G(THREE.CylinderGeometry, 0.055, 0.065, 0.12, 10), skin, 0, 1.4, 0);
+  const am = arms(g, { y: 1.33, z: 0.22, len: 0.52, r: 0.055, sleeve: teal, sleeveLen: 0.12, arm: teal, hand: glove, splay: 0.12 });
+  for (const a of am) add(a.children[0], G(THREE.CylinderGeometry, 0.06, 0.052, 0.14, 8), glove, 0, -0.47, 0);
+  const h = head(g, { y: 1.52, r, skin });
+  add(h, t(), '#c9585a', r * 0.94, -r * 0.45, 0, [r * 0.08, r * 0.07, r * 0.24]);
+  for (const k of [-1, 1]) add(h, G(THREE.BoxGeometry, r * 0.08, r * 0.05, r * 0.28), '#9c3a16', r * 0.9, r * 0.42, k * r * 0.38).rotation.x = -k * 0.2;
+  const hair = '#d2521d', hi = '#e8702e';
+  shell(h, r, [0, 2 * PI, 0, 1.5], [1.14, 1.16, 1.12], hair, -0.012, 0.012).rotation.z = 0.4;
+  add(h, S(), hair, -0.08, -0.13, 0, [0.12, 0.25, 0.17]); // long mass down the back
+  for (const [x, y, z, a, b, c, col] of [
+    [-0.03, -0.1, 0.125, 0.075, 0.15, 0.07, hi], [-0.05, -0.26, 0.12, 0.08, 0.1, 0.08, hair], [-0.1, -0.37, 0, 0.09, 0.08, 0.13, hi], [0.07, 0.085, 0.03, 0.06, 0.05, 0.1, hair],
+  ]) for (const k of z ? [-1, 1] : [1]) add(h, s(), col, x, y, k * z, [a, b, c]).rotation.set(k * 0.3, 0, 0.2);
+  g.scale.setScalar(1.3);
+  return { g, legs: lg, arms: am };
+}
 
-// MAN tipper truck with crane (see camion.png). PLACEHOLDER.
-// Contract: { g, body, len, w, exhaust } — body is the sprung part (game bobs body.position.y),
+// Jack, the kind old neighbour who helps Erika: 75, thin and stooped, tweed flat cap, white moustache, beige cardigan
+export function buildJack() {
+  const g = new THREE.Group(), skin = '#eec2a6', r = 0.115, cord = '#6d4f36', beige = '#cdb68c', white = '#f3f3f0';
+  const lg = legs(g, { y: 0.72, z: 0.08, r: 0.066, pants: cord, shoe: '#3b2a1f', sole: '#1c1511', foot: 0.23 });
+  add(g, s(), cord, 0, 0.77, 0, [0.12, 0.11, 0.16]);
+  const up = pivot(g, 0, 0.77, 0); up.rotation.z = -0.24; // stoop
+  const cardi = M('#ffffff', { map: knit('jackCardi', beige, '#bfa77c', (c, w, h) => {
+    c.fillStyle = '#ece6d6'; c.fillRect(0, 0, w, h); c.fillStyle = 'rgba(160,50,45,.6)';
+    for (let i = 0; i < w; i += 14) { c.fillRect(i, 0, 5, h); c.fillRect(0, i, w, 5); }
+  }) });
+  add(up, blob('jack', v => {
+    const f = Math.max(0, -v.x);
+    v.set(v.x * 0.13 * (1 + 0.35 * bump(v.y, 0.45, 0.35) * f), v.y * 0.3, v.z * 0.17 * (1 + 0.35 * bump(v.y, 0.75, 0.3)));
+  }), cardi, 0, 0.33, 0);
+  for (const y of [0.1, 0.2, 0.3]) add(up, t(), '#5a4028', 0.128, y, 0, 0.012); // buttons
+  add(up, G(THREE.CylinderGeometry, 0.05, 0.06, 0.14, 10), skin, 0.02, 0.64, 0).rotation.z = -0.2;
+  const am = arms(up, { y: 0.57, z: 0.2, len: 0.5, r: 0.048, sleeve: beige, sleeveLen: 0.1, arm: beige, hand: skin, splay: 0.08 });
+  const h = head(up, { x: 0.07, y: 0.77, r, skin, nose: '#e59e8a', noseR: 0.26 }); h.rotation.z = 0.2;
+  shell(h, r, [-PI / 2 + 0.15, PI - 0.3, 1.2, 0.95], [1.05, 1.06, 1.05], white); // white hair round the back, under the cap
+  add(h, s(), white, r * 0.96, -r * 0.33, 0, [r * 0.16, r * 0.12, r * 0.42]); // moustache
+  for (const k of [-1, 1]) add(h, G(THREE.BoxGeometry, r * 0.14, r * 0.1, r * 0.3), white, r * 0.92, r * 0.43, k * r * 0.38).rotation.x = k * 0.2;
+  const tweed = M('#ffffff', { map: tex('tweed', 64, 64, (c, w) => {
+    c.fillStyle = '#7b5a3a'; c.fillRect(0, 0, w, w);
+    for (let i = 0; i < 500; i++) { c.fillStyle = i % 2 ? '#5a4029' : '#a3825a'; c.fillRect(Math.random() * w, Math.random() * w, 2, 1); }
+  }) });
+  add(h, S(), tweed, r * 0.12, r * 0.62, 0, [r * 1.16, r * 0.5, r * 1.1]);
+  add(h, G(THREE.CylinderGeometry, 1, 1, 1, 14, 1, false, 0, PI), tweed, r * 0.6, r * 0.6, 0, [r * 0.75, 0.012, r * 0.95]).rotation.z = -0.15; // peak
+  g.scale.setScalar(1.3);
+  return { g, legs: lg, arms: am };
+}
+
+// ───────────── MAN TGS tipper with knuckle-boom crane (camion.png)
+// Contract: { g, body, len, w, exhaust } — body is the sprung part (game bobs body.position.y), wheels stay in g,
 // len/w are the footprint in metres, exhaust is a local-space Vector3 at the smoke outlet.
 export function buildTruck(env) {
-  const g = new THREE.Group(), body = new THREE.Group(), len = 9.6, w = 2.5; g.add(body);
-  add(body, new THREE.BoxGeometry(2.2, 2.6, w), M('#1f5a57', { roughness: 0.35, metalness: 0.4, envMap: env }), len / 2 - 1.1, 1.8, 0);
-  add(body, new THREE.BoxGeometry(len - 2.4, 1.4, w), '#2a6b52', -1.2, 1.6, 0);
-  for (const x of [len / 2 - 1.4, -len / 2 + 2.6, -len / 2 + 1.3]) for (const z of [-1, 1])
-    add(g, new THREE.CylinderGeometry(0.5, 0.5, 0.4, 14), '#1b1b1d', x, 0.5, z * (w / 2 - 0.15)).rotation.x = Math.PI / 2;
-  return { g, body, len, w, exhaust: new THREE.Vector3(len / 2 - 2.3, 3.4, -w / 2 + 0.1) };
+  const g = new THREE.Group(), body = new THREE.Group(), len = 9.6, w = 2.5, L = len / 2, F = L - 0.25; g.add(body);
+  const E = { envMap: env }, paint = M('#0e4d51', { roughness: 0.22, metalness: 0.7, ...E }), band = M('#dce6e3', { roughness: 0.3, metalness: 0.3, ...E });
+  const green = M('#1f5e4c', { roughness: 0.4, metalness: 0.5, ...E }), floor = M('#193f33'), blue = M('#2748c0', { roughness: 0.35, metalness: 0.45, ...E });
+  const black = M('#17191c', { roughness: 0.6 }), chrome = M('#c9d0d6', { roughness: 0.22, metalness: 1, ...E }), glass = M('#2a4655', { roughness: 0.05, metalness: 0.7, ...E });
+  const led = M('#0b3440', { emissive: '#3ad8ff', emissiveIntensity: 1.3 }), amber = M('#ffb020', { emissive: '#ff9500', emissiveIntensity: 2 });
+  const box = (m, sx, sy, sz, x, y, z, p = body) => add(p, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
+  const rbox = (m, sx, sy, sz, rad, x, y, z) => add(body, G(RoundedBoxGeometry, sx, sy, sz, 2, rad), m, x, y, z);
+  const cyl = (m, r0, r1, h, seg, x, y, z) => add(body, G(THREE.CylinderGeometry, r0, r1, h, seg), m, x, y, z);
+  const beam = (m, [ax, ay], [bx, by], t, z = 0) => { box(m, Math.hypot(bx - ax, by - ay), t, t, (ax + bx) / 2, (ay + by) / 2, z).rotation.z = Math.atan2(by - ay, bx - ax); };
+  // cab
+  rbox(paint, 2.0, 2.15, w - 0.06, 0.14, F - 1, 2.17, 0);
+  rbox(band, 2.02, 0.34, w - 0.04, 0.12, F - 1, 3.0, 0);
+  rbox(paint, 1.8, 0.2, w - 0.2, 0.08, F - 1.05, 3.3, 0);
+  box(glass, 0.04, 0.95, w - 0.35, F + 0.005, 2.45, 0);
+  const grille = M('#ffffff', { roughness: 0.35, metalness: 0.5, ...E, map: tex('man', 512, 204, (c, w, h) => {
+    c.fillStyle = '#0c0e10'; c.fillRect(0, 0, w, h); c.fillStyle = '#1e2226';
+    for (let y = 10; y < h - 6; y += 16) c.fillRect(10, y, w - 20, 7);
+    const gr = c.createLinearGradient(0, 55, 0, 160); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.5, '#8d979e'); gr.addColorStop(1, '#f6f8fa');
+    c.fillStyle = c.strokeStyle = gr; c.lineWidth = 9; c.beginPath(); c.moveTo(w / 2 - 44, 44); c.lineTo(w / 2, 20); c.lineTo(w / 2 + 44, 44); c.stroke();
+    c.font = 'bold 104px Arial, Helvetica, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('MAN', w / 2, h * 0.6);
+  }) });
+  add(body, once('grilleGeo', () => new THREE.PlaneGeometry(1.75, 0.7).rotateY(PI / 2)), grille, F + 0.006, 1.58, 0);
+  for (const k of [-1, 1]) {
+    const z = k * (w / 2 - 0.02);
+    box(glass, 1.0, 0.78, 0.02, F - 0.55, 2.45, k * 1.222);
+    box(black, 0.02, 1.7, 0.01, F - 1.15, 2.05, k * 1.221);
+    box(black, 0.22, 0.05, 0.03, F - 1.0, 1.95, k * 1.23);
+    box(black, 0.05, 0.05, 0.26, F - 0.12, 2.75, k * 1.33);
+    rbox(black, 0.12, 0.5, 0.2, 0.05, F - 0.08, 2.45, k * 1.44); // mirrors
+    box(M('#dfe9f0', { emissive: '#fff4d6', emissiveIntensity: 0.5 }), 0.03, 0.12, 0.34, F + 0.235, 1.0, k * 0.85);
+    box(led, 2.0, 0.035, 0.035, F - 1, 1.1, z); // cab underglow
+    cyl(black, 0.12, 0.13, 0.06, 10, F - 0.35, 3.43, k * 0.8); cyl(amber, 0.09, 0.11, 0.17, 10, F - 0.35, 3.54, k * 0.8); // beacons
+    add(body, once('arch', () => new THREE.CylinderGeometry(0.64, 0.64, 0.5, 14, 1, true, PI / 2, PI).rotateX(PI / 2)), M('#17191c', { side: THREE.DoubleSide }), F - 1.05, 0.53, k * (w / 2 - 0.2));
+  }
+  box(black, 0.36, 0.1, w - 0.08, F + 0.06, 3.08, 0).rotation.z = -0.12; // sun visor
+  box(led, 0.03, 0.03, w - 0.1, F + 0.24, 3.04, 0);
+  rbox(paint, 0.55, 0.62, w, 0.1, F - 0.05, 0.82, 0); // bumper
+  box(black, 0.02, 0.2, 1.3, F + 0.23, 0.72, 0);
+  box(black, 0.4, 0.05, w + 0.04, L - 0.2, 0.45, 0); box(led, 0.035, 0.035, w + 0.04, L - 0.015, 0.45, 0); // splitter
+  box(black, 0.36, 0.62, w - 0.1, F - 1.8, 0.82, 0); box(black, 1.1, 0.5, 1.5, F - 1.05, 0.85, 0); // steps, under-cab
+  // chassis, tank, skirts
+  box(black, 7.3, 0.28, 0.95, -1.1, 0.92, 0);
+  add(body, once('tank', () => new THREE.CylinderGeometry(0.28, 0.28, 1.3, 14).rotateZ(PI / 2)), M('#c9d0d4', { roughness: 0.3, metalness: 0.85, ...E }), 0.85, 0.78, -0.92);
+  box(black, 1.3, 0.5, 0.5, 0.85, 0.8, 0.92);
+  for (const k of [-1, 1]) { box(black, 3.9, 0.1, 0.06, 0.55, 0.52, k * (w / 2 - 0.12)); box(led, 3.9, 0.035, 0.035, 0.55, 0.47, k * (w / 2 - 0.08)); }
+  // tipper body, high sides
+  const tx = -1.7, tl = 6.1, th = 1.5, ty = 1.32 + th / 2;
+  box(black, 6.0, 0.14, 1.2, tx, 1.13, 0); box(floor, tl, 0.12, w, tx, 1.26, 0);
+  box(green, 0.1, th + 0.25, w, tx + tl / 2 - 0.05, ty + 0.125, 0); box(green, 0.1, th, w, tx - tl / 2 + 0.05, ty, 0);
+  for (const k of [-1, 1]) {
+    box(green, tl, th, 0.08, tx, ty, k * (w / 2 - 0.04)); box(green, tl + 0.04, 0.1, 0.16, tx, ty + th / 2, k * (w / 2 - 0.06));
+    for (let x = -4.2; x < 1.2; x += 1) box(green, 0.08, th - 0.1, 0.07, x, ty - 0.05, k * (w / 2 + 0.01));
+    box(led, tl, 0.035, 0.035, tx, 1.2, k * (w / 2 + 0.005));
+    box(M('#ff2a1f', { emissive: '#d0150c', emissiveIntensity: 1 }), 0.04, 0.12, 0.3, -L + 0.03, 1.02, k * 0.95);
+    box(black, 0.03, 0.5, 0.45, -4.0, 0.55, k * (w / 2 - 0.2)); box(black, 2.4, 0.05, 0.48, -2.68, 1.12, k * (w / 2 - 0.2)); // mud flaps, guards
+    box(blue, 0.18, 0.72, 0.18, 1.95, 0.92, k * 1.12); box(black, 0.3, 0.05, 0.3, 1.95, 0.55, k * 1.12); // crane stabilisers
+  }
+  box(black, 0.1, 0.12, 2.2, -L + 0.1, 0.6, 0);
+  // blue knuckle-boom crane, folded in transport position between cab and tipper
+  box(blue, 0.55, 0.36, w - 0.1, 1.95, 1.2, 0); cyl(black, 0.34, 0.34, 0.1, 12, 1.95, 1.42, 0); cyl(blue, 0.26, 0.3, 1.55, 8, 1.95, 2.1, 0);
+  rbox(blue, 0.55, 0.4, 0.55, 0.08, 1.95, 2.9, 0);
+  beam(blue, [1.95, 2.95], [1.45, 3.75], 0.34); beam(blue, [1.45, 3.75], [-1.4, 3.1], 0.3); beam(M('#1d3290', { roughness: 0.4 }), [-1.4, 3.1], [-1.95, 2.98], 0.2);
+  add(body, once('pin', () => new THREE.CylinderGeometry(0.16, 0.16, 0.42, 12).rotateX(PI / 2)), black, 1.45, 3.75, 0);
+  beam(black, [1.35, 3.97], [0.75, 3.83], 0.12); beam(chrome, [0.75, 3.83], [0.05, 3.66], 0.06);
+  for (const k of [-1, 1]) beam(chrome, [1.72, 2.2], [1.52, 3.45], 0.07, k * 0.21);
+  box(black, 0.12, 0.26, 0.12, -1.95, 2.8, 0);
+  // exhaust stack behind the cab (left side)
+  const ex = new THREE.Vector3(F - 2.15, 3.72, -(w / 2 - 0.25));
+  cyl(chrome, 0.075, 0.075, 2.45, 10, ex.x, 2.47, ex.z); cyl(black, 0.1, 0.1, 0.9, 10, ex.x, 2.9, ex.z); cyl(black, 0.085, 0.085, 0.06, 10, ex.x, ex.y - 0.03, ex.z);
+  // wheels (unsprung): 1 front, 2 rear axles
+  const tire = once('tire', () => new THREE.CylinderGeometry(0.53, 0.53, 0.42, 22).rotateX(PI / 2)), rim = once('rimT', () => new THREE.CylinderGeometry(0.34, 0.34, 0.04, 18).rotateX(PI / 2));
+  const hub = once('hub', () => new THREE.CylinderGeometry(0.1, 0.15, 0.08, 8).rotateX(PI / 2)), ring = once('ring', () => new THREE.TorusGeometry(0.22, 0.03, 4, 18));
+  for (const x of [F - 1.05, -2.0, -3.35]) for (const k of [-1, 1]) {
+    const z = k * (w / 2 - 0.21);
+    add(g, tire, M('#1b1b1d', { roughness: 0.9 }), x, 0.53, z); add(g, rim, chrome, x, 0.53, z + k * 0.2);
+    add(g, ring, '#3a3f44', x, 0.53, z + k * 0.225); add(g, hub, '#2a2d31', x, 0.53, z + k * 0.24);
+  }
+  // soft cyan glow on the ground under the LED strips
+  const glow = add(g, G(THREE.PlaneGeometry, len + 1.2, w + 1.2), once('glowMat', () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, map: tex('glow', 256, 88, (c, w, h) => {
+    c.fillStyle = '#000'; c.fillRect(0, 0, w, h); c.filter = 'blur(6px)'; c.strokeStyle = '#3ad8ff'; c.lineWidth = 9; c.strokeRect(16, 16, w - 32, h - 32);
+  }) })), 0, 0.03, 0);
+  glow.rotation.x = -PI / 2; glow.castShadow = glow.receiveShadow = false;
+  return { g, body, len, w, exhaust: ex };
 }
