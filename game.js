@@ -360,14 +360,14 @@ const MARK = {
 
 const floats = [];
 function floatText(text, x, y, z, color = '#fff') {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
-  const g = c.getContext('2d');
-  g.font = '700 60px Fredoka, system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.lineWidth = 12; g.strokeStyle = 'rgba(18,22,30,.85)'; g.strokeText(text, 256, 64);
-  g.fillStyle = color; g.fillText(text, 256, 64);
+  const c = document.createElement('canvas'), g = c.getContext('2d'), font = '700 60px Fredoka, system-ui, sans-serif';
+  g.font = font; c.width = Math.max(512, Math.ceil(g.measureText(text).width) + 40); c.height = 128;
+  g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 12; g.strokeStyle = 'rgba(18,22,30,.85)'; g.strokeText(text, c.width / 2, 64);
+  g.fillStyle = color; g.fillText(text, c.width / 2, 64);
   const map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false }));
-  sp.scale.set(4.4, 1.1, 1); sp.position.set(x, y, z); sp.renderOrder = 10;
+  sp.scale.set(4.4 * c.width / 512, 1.1, 1); sp.position.set(x, y, z); sp.renderOrder = 10;
   scene.add(sp); floats.push({ sp, t: 0 });
 }
 const puffs = [], puffGeo = new THREE.IcosahedronGeometry(0.28, 0);
@@ -534,7 +534,7 @@ ring.rotation.x = -Math.PI / 2; ring.position.y = 0.2; scene.add(ring);
 // ───────────────────────── game state
 const keys = {};
 let driving = null, score = 50, elapsed = 0, streak = 0, rate = 0, mult = 1, spawnT = 8;
-let binsInHand = 0, binsBought = 0, carsOwned = 1, started = false, paused = false, foreignN = 0;
+let binsInHand = null, binsBought = 0, carsOwned = 1, started = false, paused = false, foreignN = 0;
 let best = 0;
 try { best = +localStorage.getItem('parkingGuardBest') || 0; } catch {}
 const carPrice = () => 200 * 2 ** (carsOwned - 1);
@@ -572,6 +572,7 @@ function obstacleAhead(c) {
   for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked') for (const [x, z, r] of circles(o)) test(o, x, z, c.len / 2 + r + 1.2, CAR_R + r);
   if (!driving) test(player, player.x, player.z, c.len / 2 + 1.2);
   for (const b of bins) test(b, b.x, b.z, c.len / 2 + 1);
+  for (const w of walkers) if (w.g.visible) test(w, w.x, w.z, c.len / 2 + 1.2);
   return [gap, who];
 }
 function laneClear(c) {
@@ -747,7 +748,8 @@ function walk(dt) {
   player.moving = len > 0;
   if (len) {
     vx /= len; vz /= len;
-    player.x += vx * 6.2 * dt; player.z += vz * 6.2 * dt;
+    const v = binsInHand ? 4.3 : 6.2;
+    player.x += vx * v * dt; player.z += vz * v * dt;
     player.ang = Math.atan2(-vz, vx);
   }
   pushOut(player);
@@ -762,14 +764,16 @@ const nearestMine = () => { // measured to the nearest collision circle, so the 
 const nearBin = () => bins.find(b => Math.hypot(b.x - player.x, b.z - player.z) < 1.8);
 const slotFree = s => !(s.ai && s.ai.state !== 'drive') && (!s.block || s.block === player);
 const binSlot = () => {
+  const o = binsInHand || player;
   let best = null, bd = 3.2;
-  for (const s of slots) { const d = Math.hypot(s.x - player.x, s.z - player.z); if (d < bd && slotFree(s)) { bd = d; best = s; } }
+  for (const s of slots) { const d = Math.hypot(s.x - o.x, s.z - o.z); if (d < bd && slotFree(s)) { bd = d; best = s; } }
   return best;
 };
 
 function actionE() {
   if (!driving) {
     const c = nearestMine();
+    if (c && binsInHand) return toast('Put the bin down first (B)');
     if (c) { driving = c; c.speed = 0; if (c.truck) c.smokeT = 8; person.g.visible = false; SFX.door(); }
     return;
   }
@@ -791,24 +795,19 @@ function actionE() {
 }
 function actionB() {
   if (driving) return;
-  const b = nearBin();
-  if (b) {
-    scene.remove(b.mesh); bins.splice(bins.indexOf(b), 1); binsInHand++;
+  const b = binsInHand;
+  if (!b) {
+    const n = nearBin();
+    if (!n) return toast('Walk up to a bin to grab it — or buy one (key 2)');
+    bins.splice(bins.indexOf(n), 1); n.slot = null; binsInHand = n; SFX.door();
     return;
   }
-  if (!binsInHand) return toast('Buy a bin first (key 2)');
-  const s = binSlot();
-  if (!s) return toast('Stand in a free parking spot to place a bin');
-  binsInHand--;
-  const mesh = buildBin(scene, '#2f5d3a', '#ffd23f');
-  mesh.scale.setScalar(1.15);
-  const bin = { mesh, x: s.x, z: s.z + s.side * 0.35, slot: s };
-  mesh.position.set(bin.x, 0, bin.z); mesh.rotation.y = rand(-0.3, 0.3);
-  const sp = new THREE.Sprite(MARK.mine); sp.position.y = 2.1; sp.scale.setScalar(0.8); sp.renderOrder = 5; mesh.add(sp);
-  bins.push(bin);
-  puff(bin.x, bin.z, 5, '#fff3c4');
-  floatText('Spot blocked!', bin.x, 2.8, bin.z, '#ffd166');
-  SFX.block();
+  const side = Math.sign(b.z), walkway = Math.abs(b.z) > CURB_Z, s = walkway ? null : binSlot(), x = s ? s.x : walkway ? sidewalkSpot(b.x, side) : null;
+  if (x === null) return toast(walkway ? 'No room for the bin here' : 'Push the bin into a free spot or onto the sidewalk');
+  binsInHand = null;
+  putBin(b, x, s ? s.z + s.side * 0.35 : side * BIN_Z, s);
+  puff(b.x, b.z, 5, '#fff3c4');
+  if (s) { floatText('Spot blocked!', b.x, 2.8, b.z, '#ffd166'); SFX.block(); }
   pushOut(player);
 }
 function buyCar() {
@@ -852,8 +851,11 @@ function buyTruck() {
 function buyBin() {
   const price = binPrice();
   if (score < price) return toast(`A bin costs ${price} credits`);
-  score -= price; binsBought++; binsInHand++; SFX.buy();
-  toast('Bin ready — stand in a free spot and press B');
+  score -= price; binsBought++; SFX.buy();
+  const b = newBin('#2f5d3a', '#ffd23f', 1.15), w = driving || player, side = Math.sign(w.z) || -1;
+  if (driving || binsInHand) { putBin(b, sidewalkSpot(w.x, side) ?? w.x, side * BIN_Z); return toast('Your new bin is waiting on the sidewalk'); }
+  binsInHand = b; carryBin(b, player.x, player.z, person.g.rotation.y);
+  toast('Bin in hand — push it into a free spot, B to put it down');
 }
 
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyZ: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyQ: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'brake' };
@@ -926,7 +928,7 @@ function hud(dt) {
   $('buyBin').disabled = score < binPrice();
   $('truckPrice').textContent = truckOwned ? 'Owned' : TRUCK_PRICE;
   $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
-  $('inv').textContent = binsInHand ? `🗑️ ${binsInHand} in hand · B in a free spot` : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`;
+  $('inv').textContent = binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`;
   const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.8 ? 1 : 2;
   $('traffic').textContent = ['calm', 'busy', 'rush hour'][tl];
   $('trafficDot').style.background = ['#06d6a0', '#ffd166', '#ef476f'][tl];
@@ -936,9 +938,9 @@ function hud(dt) {
     const n = slots.filter(s => covers({ ...driving, ...tidy(driving) }, s)).length;
     p = n ? `E — leave the ${driving.truck ? 'truck' : 'car'} here (${n} spot${n > 1 ? 's' : ''} blocked)` : 'E — get out';
   }
+  else if (binsInHand) p = Math.abs(binsInHand.z) > CURB_Z ? 'B — leave the bin on the sidewalk' : binSlot() ? 'B — block this spot with the bin' : 'Push the bin into a free spot or onto the sidewalk';
   else if (mine) p = `E — drive ${mine.truck ? 'the truck' : 'this car'}`;
   else if (nearBin()) p = 'B — pick up bin';
-  else if (binsInHand && binSlot()) p = 'B — place bin here';
   $('prompt').textContent = started ? p : '';
   try { if (Math.floor(best) > (+localStorage.getItem('parkingGuardBest') || 0)) localStorage.setItem('parkingGuardBest', Math.floor(best)); } catch {}
 }
@@ -957,7 +959,7 @@ function sync(dt) {
   player.phase += player.moving ? dt * 11 : 0;
   const sw = player.moving ? Math.sin(player.phase) * 0.6 : 0;
   person.legs[0].rotation.z = sw; person.legs[1].rotation.z = -sw;
-  person.arms[0].rotation.z = -sw * 0.8; person.arms[1].rotation.z = sw * 0.8;
+  person.arms[0].rotation.z = binsInHand ? ARMS_CARRY : -sw * 0.8; person.arms[1].rotation.z = binsInHand ? ARMS_CARRY : sw * 0.8;
   const who = driving || player;
   ring.position.x = who.x; ring.position.z = who.z;
   ring.scale.setScalar((driving ? 3 : 1) * (1 + Math.sin(elapsed * 4) * 0.06));
@@ -967,10 +969,204 @@ function update(dt) {
   elapsed += dt;
   if (driving) drive(driving, dt); else walk(dt);
   computeBlocks();
-  for (const c of [...cars]) if (c.kind !== 'mine') updateAI(c, dt);
+  for (const c of [...cars]) if (c.kind !== 'mine' && c.kind !== 'jack') updateAI(c, dt);
   spawner(dt);
+  neighbours(dt);
   scoring(dt);
 }
+
+// ───────────────────────── neighbours on foot: Jack & the red-haired lady
+import { buildRedhead, buildJack } from './models.js';
+const SW = 5.9, BIN_Z = WALL_Z - 0.6, CROSS_XS = [-33, -0.1, 31], RED_GATE = -33, JACK_GATE = -3.6, ARMS_CARRY = 1.2; // arms forward (+rotation.z swings a hanging arm toward +x)
+const CD = Array.from({ length: 11 }, (_, i) => markerMat('#f77f00', g => { g.font = '900 70px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(i, 64, 68); }));
+MARK.jack = markerMat('#06d6a0', g => { g.beginPath(); g.moveTo(64, 98); g.bezierCurveTo(18, 66, 32, 22, 64, 46); g.bezierCurveTo(96, 22, 110, 66, 64, 98); g.fill(); });
+const tolerance = () => rand(40, 70) * (1 - 0.45 * traffic());
+function newBin(body, lid, sc = 1) {
+  const mesh = buildBin(scene, body, lid), tag = new THREE.Sprite(MARK.mine);
+  mesh.scale.setScalar(sc); tag.position.y = 2.1; tag.scale.setScalar(0.8); tag.renderOrder = 5; tag.visible = false; mesh.add(tag);
+  return { mesh, tag, x: 0, z: 0, slot: null, t: 0 };
+}
+function putBin(b, x, z, slot = null) {
+  Object.assign(b, { x, z, slot, t: slot ? tolerance() : 0 });
+  b.mesh.position.set(x, slot ? 0 : 0.15, z);
+  b.mesh.rotation.y = slot ? rand(-0.3, 0.3) : -Math.sign(z) * Math.PI / 2 + rand(-0.2, 0.2);
+  bins.push(b);
+}
+function carryBin(b, x, z, a) {
+  b.x = x + Math.cos(a) * 0.95; b.z = clamp(z - Math.sin(a) * 0.95, 0.5 - WALL_Z, WALL_Z - 0.5);
+  b.mesh.position.set(b.x, Math.abs(b.z) > CURB_Z ? 0.15 : 0, b.z); b.mesh.rotation.y = a; b.tag.visible = false;
+}
+// free sidewalk x near x on side s: clear of gates and of other sidewalk bins
+function sidewalkSpot(x, s) {
+  for (let k = 0; k < 25; k++) {
+    const t = x + (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
+    if (Math.abs(t) < STREET_X - 1 && GATES[s].every(g => Math.abs(t - g) > 2.2) && bins.every(b => b.slot || Math.sign(b.z) !== s || Math.abs(b.x - t) > 1)) return t;
+  }
+  return null;
+}
+const walkers = [];
+function walker(build) {
+  const w = Object.assign(build(), { x: 0, z: 0, ang: 0, pts: [], then: null, carry: null, phase: 0 });
+  w.g.visible = false; scene.add(w.g); walkers.push(w);
+  return w;
+}
+const go = (w, pts, then) => { w.g.visible = true; w.pts = pts; w.then = then; };
+// sidewalk waypoints from a to b, crossing the road at the crossing point nearest to the middle of the trip
+function route(ax, az, bx, bz) {
+  const sa = Math.sign(az), sb = Math.sign(bz), pts = [[ax, sa * SW]], m = (ax + bx) / 2;
+  if (sa !== sb) { const cx = CROSS_XS.reduce((p, q) => Math.abs(q - m) < Math.abs(p - m) ? q : p); pts.push([cx, sa * SW], [cx, sb * SW]); }
+  return [...pts, [bx, sb * SW], [bx, bz]];
+}
+function stepWalkers(dt) {
+  for (const w of walkers) {
+    if (!w.g.visible) continue;
+    const p = w.pts[0], moving = !!p;
+    if (p) {
+      const dx = p[0] - w.x, dz = p[1] - w.z, d = Math.hypot(dx, dz), v = 3 * dt;
+      if (d > 0.05) w.ang = Math.atan2(-dz, dx);
+      if (d > v) { w.x += dx / d * v; w.z += dz / d * v; }
+      else { w.x = p[0]; w.z = p[1]; w.pts.shift(); if (!w.pts.length) { const f = w.then; w.then = null; f?.(); } }
+    }
+    let da = w.ang - w.g.rotation.y; da = Math.atan2(Math.sin(da), Math.cos(da));
+    w.g.rotation.y += da * Math.min(1, dt * 10);
+    w.phase += moving ? dt * 10 : 0;
+    const sw = moving ? Math.sin(w.phase) * 0.6 : 0;
+    w.legs[0].rotation.z = sw; w.legs[1].rotation.z = -sw;
+    w.arms[0].rotation.z = w.carry ? ARMS_CARRY : -sw * 0.8; w.arms[1].rotation.z = w.carry ? ARMS_CARRY : sw * 0.8;
+    w.g.position.set(w.x, 0, w.z);
+    if (w.carry) carryBin(w.carry, w.x, w.z, w.g.rotation.y);
+  }
+}
+
+// the red-haired lady: fetches the most overdue bin in a bay and wheels it back onto the sidewalk, one at a time
+const red = walker(buildRedhead), RED_HOME = -WALL_Z - 1.6;
+const redGoHome = () => go(red, route(red.x, red.z, RED_GATE, RED_HOME), () => { red.g.visible = false; });
+function redhead() {
+  if (red.g.visible) return;
+  const b = bins.filter(q => q.slot && q.t <= 0).sort((p, q) => p.t - q.t)[0];
+  if (!b) return;
+  const s = b.slot.side;
+  Object.assign(red, { x: RED_GATE, z: RED_HOME, carry: null });
+  go(red, [...route(RED_GATE, RED_HOME, b.x - 1.9, s * SW), [b.x - 1, b.z]], () => {
+    if (!bins.includes(b) || !b.slot || b.t > 0) { floatText('Hmpf !', red.x, 2.6, red.z, '#ffb4a2'); return redGoHome(); }
+    bins.splice(bins.indexOf(b), 1); b.slot = null; red.carry = b; // the bay is free again right now
+    red.ang = red.g.rotation.y = Math.atan2(-(b.z - red.z), b.x - red.x);
+    floatText(pick(['Ces poubelles !', 'Pas sur la place !', 'Oh là là…']), red.x, 2.8, red.z, '#ffb4a2');
+    const sx = sidewalkSpot(b.x + 2, s) ?? b.x + 2;
+    go(red, [[sx - 0.95, s * SW]], () => {
+      red.carry = null;
+      putBin(b, sidewalkSpot(b.x, s) ?? b.x, s * BIN_Z);
+      puff(b.x, b.z, 4, '#e9e9e9');
+      redGoHome();
+    });
+  });
+}
+
+// Jack: old beige hatch in his driveway; drives out (one-way, lane clear), parks across two free bays for Erika, walks home, later leaves
+const jw = walker(buildJack), J = addCar('jack', '#c9b48a', 'hatch');
+const jackHome = () => Object.assign(J, { x: JACK_GATE, z: WALL_Z + 2.6, ang: Math.PI / 2, state: 'parked', speed: 0, blocker: false, phase: 'home', wait: rand(60, 100), goal: null, leaving: false });
+jackHome(); Object.assign(J, { name: 'Jack', wait: 22 });
+const bayFree = s => !s.ai && !s.block;
+const laneFree = (x, back, fwd) => !cars.some(o => o !== J && o.state !== 'away' && o.state !== 'parked' && Math.abs(o.z) < 2.2 && o.x > x - back && o.x < x + fwd);
+function jackGoal() { // nearest reachable pair of adjacent free bays (straddle the line), else a single free bay
+  let best = null, bs = Infinity;
+  for (const a of slots) {
+    if (!bayFree(a)) continue;
+    const b = slots.find(q => q.side === a.side && Math.abs(q.x - a.x - SLOT_LEN) < 0.1 && bayFree(q));
+    const x = b ? (a.x + b.x) / 2 : a.x, sc = x - J.x + (b ? 0 : 1000);
+    if (x - J.x >= 10 && sc < bs) { bs = sc; best = { x, z: a.z, side: a.side, bays: b ? [a, b] : [a] }; }
+  }
+  return best;
+}
+function jack(dt) {
+  switch (J.phase) {
+    case 'home': case 'visit': case 'gone': case 'round':
+      if ((J.wait -= dt) > 0) return;
+      if (J.phase === 'home') {
+        J.phase = 'walk'; Object.assign(jw, { x: JACK_GATE - 1.3, z: WALL_Z + 5 });
+        go(jw, [[JACK_GATE - 1.3, WALL_Z + 3]], () => { jw.g.visible = false; J.phase = 'wait'; if (nearPlayer(J.x, J.z)) SFX.door(); });
+      } else if (J.phase === 'visit') {
+        J.phase = 'walk'; Object.assign(jw, { x: JACK_GATE, z: WALL_Z + 1.6 });
+        go(jw, route(JACK_GATE, WALL_Z + 1.6, J.x - 0.6, J.goal.side * 5.3), () => { jw.g.visible = false; J.phase = 'unpark'; if (nearPlayer(J.x, J.z)) SFX.door(); });
+      } else if (J.phase === 'gone') { jackHome(); J.mesh.visible = true; }
+      else if (enterStreet(J)) J.phase = 'drive';
+      return;
+    case 'wait':
+      if (!laneFree(JACK_GATE, 28, 8)) return;
+      Object.assign(J, { path: [[JACK_GATE, J.z], [JACK_GATE, 2.5], [JACK_GATE + 2, 0], [JACK_GATE + 6, 0]], dur: 3.2, t: 0, state: 'out', phase: 'out' });
+      return;
+    case 'unpark':
+      if (!laneFree(J.x, 16, 11)) return;
+      Object.assign(J, { path: [[J.x, J.z], [J.x + 3, J.z], [J.x + 6, 0], [J.x + 9, 0]], dur: 3, t: 0, state: 'leave', phase: 'leave', blocker: false });
+      puff(J.x - J.len / 2, J.z, 5, '#bdbdbd');
+      return;
+    case 'out': case 'leave':
+      if (followPath(J, dt, t => t * t * (3 - 2 * t))) Object.assign(J, { state: 'drive', phase: 'drive', leaving: J.phase === 'leave', goal: null });
+      return;
+    case 'park': {
+      if (!followPath(J, dt, t => 1 - (1 - t) ** 2)) return;
+      const g = J.goal;
+      Object.assign(J, { state: 'parked', phase: 'walk', x: g.x, z: g.z, ang: 0, speed: 0, blocker: true });
+      puff(J.x - J.len / 2, J.z, 4, '#cfcfcf'); SFX.block();
+      Object.assign(jw, { x: J.x - 0.6, z: g.side * 5.3 });
+      floatText('Jack : Je te garde la place, Erika !', J.x, 3.4, J.z, '#b8f28a');
+      go(jw, route(jw.x, jw.z, JACK_GATE, WALL_Z + 1.6), () => { jw.g.visible = false; J.phase = 'visit'; J.wait = rand(60, 90); });
+      return;
+    }
+    case 'drive': {
+      if (!J.leaving && !(J.goal && J.goal.x - J.x > 3 && J.goal.bays.every(bayFree))) J.goal = jackGoal();
+      const [gap] = obstacleAhead(J), g = J.goal;
+      let v = gap < 0 ? 0 : Math.min(J.cruise, gap * 1.6);
+      if (g) {
+        const rem = g.x - J.x;
+        v = Math.min(v, 2.5 + rem * 0.35);
+        if (rem <= 9 && gap > 1) {
+          Object.assign(J, { path: [[J.x, J.z], [J.x + 3, 0], [g.x - 3, g.z], [g.x, g.z]], dur: clamp(2 * rem / Math.max(J.speed, 2), 2, 4.5), t: 0, state: 'park', phase: 'park' });
+          return;
+        }
+      }
+      J.speed += clamp(v - J.speed, -14 * dt, 5 * dt);
+      J.x += J.speed * dt; J.z -= J.z * Math.min(1, dt * 3); J.ang = 0;
+      if (J.x > END_X) Object.assign(J, { state: 'away', phase: J.leaving ? 'gone' : 'round', wait: J.leaving ? rand(10, 25) : 4 }).mesh.visible = false;
+    }
+  }
+}
+
+function neighbours(dt) {
+  for (const b of bins) {
+    b.tag.visible = !!b.slot;
+    if (b.slot) { b.t -= dt; b.tag.material = b.t <= 0 ? MARK.foreign : b.t <= 10 ? CD[Math.ceil(b.t)] : MARK.mine; }
+  }
+  if (binsInHand) carryBin(binsInHand, player.x, player.z, person.g.rotation.y);
+  redhead(); jack(dt); stepWalkers(dt);
+}
+// self-check: grab a sidewalk bin, block a bay, let the lady take it back, then run one Jack visit. Returns 'ok' or throws.
+function selfTestNeighbours() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestNeighbours: ' + m); };
+  const until = (sec, f) => { for (let t = 0; t < sec && !f(); t += 0.5) window.__game.step(0.5); return f(); };
+  ok(!driving, 'be on foot');
+  if (binsInHand) actionB();
+  const b = bins.find(q => !q.slot);
+  Object.assign(player, { x: b.x, z: Math.sign(b.z) * SW }); actionB();
+  ok(binsInHand === b && !bins.includes(b), 'pick up a sidewalk bin');
+  const s = slots.find(q => bayFree(q) && !cars.some(c => c.state !== 'away' && Math.hypot(c.x - q.x, c.z - q.z) < 5));
+  ok(s, 'a free bay');
+  Object.assign(player, { x: s.x - 0.9, z: s.z, ang: 0 }); person.g.rotation.y = 0; window.__game.step(0.1); actionB();
+  window.__game.step(0.1);
+  ok(b.slot === s && s.block === b, 'bin blocks the bay');
+  player.x = s.x - 8; b.t = 0.01;
+  ok(until(90, () => red.carry === b), 'redhead grabs the bin'); window.__game.step(0.1);
+  ok(s.block !== b, 'bay freed on grab');
+  ok(until(60, () => bins.includes(b) && !b.slot && Math.abs(b.z) > CURB_Z), 'bin back on the sidewalk');
+  ok(until(90, () => !red.g.visible), 'redhead home');
+  if (['home', 'gone', 'round'].includes(J.phase)) J.wait = 0;
+  ok(until(150, () => J.blocker && J.state === 'parked'), 'jack parks');
+  ok(J.goal.bays[0].block === J, 'jack blocks a bay');
+  ok(until(60, () => J.phase === 'visit'), 'jack walks home'); J.wait = 0;
+  ok(until(90, () => J.leaving && !J.mesh.visible), 'jack drives off');
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { jack: J, jw, red, walkers, held: () => binsInHand, selfTestNeighbours })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -986,6 +1182,8 @@ function setup() {
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
     else { c.state = 'away'; c.timer = rand(8, 40); c.mesh.visible = false; }
   });
+  for (const s of [1, -1]) for (const g of GATES[s]) for (const dx of Math.random() < 0.25 ? [2.4, 3.5] : [2.4])
+    putBin(newBin('#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])), g + dx, s * BIN_Z);
   for (let i = 0; i < 2; i++) placeParked(addCar('foreign', pick(AI_COLORS), pick(['hatch', 'mpv', 'suv', 'mini'])), freeSlot(), rand(20, 90));
   camTarget.set(player.x, 0, player.z);
   scoring(0); // initialise HUD counters before the first tick
