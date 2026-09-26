@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { buildErika } from './models.js';
 
 // ───────────────────────── helpers
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -9,7 +10,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const $ = id => document.getElementById(id);
 
 // ───────────────────────── street layout (street runs along X, sides are z>0 (s=1) and z<0 (s=-1))
-const LANE_Z = 1.6, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_X = 70, SLOT_LEN = 5.4;
+// one-way street: a single lane at z=0, traffic always flows toward +x (enters at -END_X, exits at +END_X)
+const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_X = 70, SLOT_LEN = 5.4;
 const SLOT_XS = { 1: [-27, -21.6, -16.2, -10.8, 3.6, 9, 14.4, 19.8], [-1]: [-20, -14.6, -9.2, -3.8, 10.8, 16.2, 21.6, 27] };
 const GATES = { 1: [-40, -3.6, 30, 44], [-1]: [-44, -33, 3.6, 38] };
 const STRANGER_FINE = 10;
@@ -460,7 +462,7 @@ function addCar(kind, color, type) {
   const { g, body, t } = buildCar(color, type);
   scene.add(g);
   const c = { id: carId++, kind, mesh: g, body, len: t.len, off: t.len / 2 - 0.9, x: 0, z: 0, ang: 0, speed: 0, dir: 1,
-    state: kind === 'mine' ? 'mine' : 'drive', slot: null, timer: 0, scan: 0, honkT: 0, cruise: rand(6.5, 9), wantsSlot: true };
+    state: kind === 'mine' ? 'mine' : 'drive', blocker: kind === 'mine', slot: null, timer: 0, scan: 0, honkT: 0, cruise: rand(6.5, 9), wantsSlot: true };
   c.marker = new THREE.Sprite(MARK[kind]);
   c.marker.position.y = 2.9; c.marker.scale.setScalar(kind === 'neighbour' ? 0.9 : 1.1); c.marker.renderOrder = 5;
   g.add(c.marker);
@@ -493,35 +495,18 @@ for (const s of [-1, 1]) for (const x of SLOT_XS[s]) {
   }
 }
 const inSlot = (o, s) => Math.abs(o.x - s.x) < SLOT_LEN / 2 && Math.abs(o.z - s.z) < 1.4;
-const parkedAng = s => (s.side > 0 ? 0 : Math.PI);
+const parkedAng = () => 0; // one-way: everyone parks facing +x
 
 // ───────────────────────── player (pedestrian)
-function buildPerson() {
-  const g = new THREE.Group(), legs = [], arms = [];
-  for (const z of [-0.11, 0.11]) {
-    const hip = new THREE.Group(); hip.position.set(0, 0.62, z); g.add(hip); legs.push(hip);
-    box(hip, 0.16, 0.62, 0.16, '#2d3440', 0, -0.31, 0);
-  }
-  mesh(g, new THREE.CapsuleGeometry(0.22, 0.38, 4, 10), '#e4572e', 0, 0.98, 0);
-  for (const z of [-0.29, 0.29]) {
-    const sh = new THREE.Group(); sh.position.set(0, 1.2, z); g.add(sh); arms.push(sh);
-    box(sh, 0.12, 0.5, 0.12, '#e4572e', 0, -0.25, 0);
-  }
-  mesh(g, new THREE.SphereGeometry(0.19, 12, 10), '#f0c39b', 0, 1.46, 0);
-  mesh(g, new THREE.CylinderGeometry(0.2, 0.2, 0.1, 12), '#264653', 0, 1.6, 0);
-  box(g, 0.2, 0.03, 0.3, '#264653', 0.17, 1.57, 0);
-  g.scale.setScalar(1.3);
-  scene.add(g);
-  return { g, legs, arms };
-}
-const person = buildPerson();
+const person = buildErika(); // the player
+scene.add(person.g);
 const player = { x: 0, z: -6.2, ang: 0, moving: false, phase: 0 };
 const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.8, 40), new THREE.MeshBasicMaterial({ color: '#ffd166', transparent: true, opacity: 0.85, depthWrite: false }));
 ring.rotation.x = -Math.PI / 2; ring.position.y = 0.2; scene.add(ring);
 
 // ───────────────────────── game state
 const keys = {};
-let driving = null, score = 50, elapsed = 0, streak = 0, rate = 0, mult = 1, spawnT = 3;
+let driving = null, score = 50, elapsed = 0, streak = 0, rate = 0, mult = 1, spawnT = 8;
 let binsInHand = 0, binsBought = 0, carsOwned = 1, started = false, paused = false, foreignN = 0;
 let best = 0;
 try { best = +localStorage.getItem('parkingGuardBest') || 0; } catch {}
@@ -543,7 +528,7 @@ function followPath(c, dt, ease) {
 function findSlot(c) {
   let best = null, bs = Infinity;
   for (const s of slots) {
-    if (s.side !== c.dir || s.ai || s.block) continue;
+    if (s.ai || s.block) continue;
     const rem = (s.x - c.x) * c.dir;
     if (rem < 10 || rem > 45) continue;
     const sc = c.kind === 'neighbour' ? Math.abs(s.x - c.home) : rem;
@@ -573,14 +558,14 @@ function laneClear(c) {
   return driving || !(Math.abs(player.z - lz) < 2.2 && along > -2 && along < 11);
 }
 function placeParked(c, s, stay) {
-  Object.assign(c, { dir: s.side, x: s.x, z: s.z, ang: parkedAng(s), state: 'parked', slot: s, timer: stay, speed: 0 });
+  Object.assign(c, { dir: 1, x: s.x, z: s.z, ang: parkedAng(s), state: 'parked', slot: s, timer: stay, speed: 0 });
   s.ai = c;
 }
 function enterStreet(c) {
-  const d = pick([1, -1]), x = -d * END_X, lz = d * LANE_Z;
+  const d = 1, x = -END_X, lz = LANE_Z;
   if (cars.some(o => o !== c && o.state !== 'away' && Math.abs(o.x - x) < 9 && Math.abs(o.z - lz) < 1.2)) return false;
   Object.assign(c, { dir: d, x, z: lz, ang: d > 0 ? 0 : Math.PI, state: 'drive', speed: c.cruise, scan: 0, slot: null,
-    wantsSlot: c.kind === 'neighbour' || Math.random() < 0.75 });
+    wantsSlot: c.kind === 'neighbour' || Math.random() < 0.35 + 0.4 * traffic() });
   c.mesh.visible = true;
   return true;
 }
@@ -655,9 +640,10 @@ function updateAI(c, dt) {
   }
   if (c.x * c.dir > END_X) leaveStreet(c);
 }
+const traffic = () => clamp((elapsed - 45) / 200, 0, 1); // 0 = learning trickle, 1 = rush hour
 function spawner(dt) {
   if ((spawnT -= dt) > 0) return;
-  spawnT = Math.max(2, 6 - elapsed / 60) * rand(0.7, 1.3);
+  spawnT = (14 - 11.5 * traffic()) * rand(0.7, 1.3);
   if (cars.filter(c => c.kind === 'foreign').length > 24) return;
   const c = addCar('foreign', pick(AI_COLORS), pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
   if (!enterStreet(c)) { scene.remove(c.mesh); cars.pop(); }
@@ -782,7 +768,7 @@ function actionB() {
 }
 function buyCar() {
   const price = carPrice();
-  if (score < price) return toast(`A car costs ${price} points`);
+  if (score < price) return toast(`A car costs ${price} credits`);
   const from = driving || player;
   let best = null, bd = Infinity;
   for (const s of slots) { const d = Math.hypot(s.x - from.x, s.z - from.z); if (d < bd && !s.ai && (!s.block || s.block === player)) { bd = d; best = s; } }
@@ -797,7 +783,7 @@ function buyCar() {
 }
 function buyBin() {
   const price = binPrice();
-  if (score < price) return toast(`A bin costs ${price} points`);
+  if (score < price) return toast(`A bin costs ${price} credits`);
   score -= price; binsBought++; binsInHand++; SFX.buy();
   toast('Bin ready — stand in a free spot and press B');
 }
@@ -823,7 +809,7 @@ $('buyBin').onclick = e => { buyBin(); e.currentTarget.blur(); };
 function computeBlocks() {
   for (const s of slots) {
     s.block = null;
-    for (const c of cars) if (c.kind === 'mine' && inSlot(c, s)) s.block = c;
+    for (const c of cars) if (c.blocker && inSlot(c, s)) s.block = c;
     for (const b of bins) if (b.slot === s) s.block = b;
     if (!driving && !s.block && inSlot(player, s)) s.block = player;
     // a blocker cancels a reservation, even mid-manoeuvre: the car rejoins traffic instead of parking through it
@@ -862,7 +848,7 @@ function hud(dt) {
   $('held').textContent = slots.filter(s => s.block && s.block !== player).length;
   $('banner').classList.toggle('on', foreignN === 0);
   $('bmult').textContent = `×${+mult.toFixed(2)}`;
-  if (foreignN === 0 && !wasProtected) toast('No strangers left — points ×3!');
+  if (foreignN === 0 && !wasProtected) toast('No strangers left — credits ×3!');
   wasProtected = foreignN === 0;
   $('carPrice').textContent = carPrice();
   $('binPrice').textContent = binPrice();
@@ -921,7 +907,7 @@ function setup() {
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
     else { c.state = 'away'; c.timer = rand(8, 40); c.mesh.visible = false; }
   });
-  for (let i = 0; i < 5; i++) placeParked(addCar('foreign', pick(AI_COLORS), pick(['hatch', 'mpv', 'suv', 'mini'])), freeSlot(), rand(20, 90));
+  for (let i = 0; i < 2; i++) placeParked(addCar('foreign', pick(AI_COLORS), pick(['hatch', 'mpv', 'suv', 'mini'])), freeSlot(), rand(20, 90));
   camTarget.set(player.x, 0, player.z);
   scoring(0); // initialise HUD counters before the first tick
 }
@@ -947,7 +933,7 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 // debug/test hook: __game.step(seconds) runs the simulation without rendering
-window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, buyBin, start: () => $('start').click(),
+window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, buyBin, start: () => $('start').click(), get elapsed() { return elapsed; }, set elapsed(v) { elapsed = v; },
   get score() { return score; }, set score(v) { score = v; }, get driving() { return driving; }, get rate() { return rate; }, get binsInHand() { return binsInHand; },
   zoom(v) { viewH = v; resize(); },
   step(sec, dt = 1 / 30) { for (let t = 0; t < sec; t += dt) { update(dt); sync(dt); updateFx(dt); } } };
