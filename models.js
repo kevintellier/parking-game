@@ -152,17 +152,48 @@ export function buildWife() {
   return { g, legs: lg, arms: am };
 }
 
-// Erika's father: bald with a white fringe and moustache, burgundy tracksuit, little paunch
+// « le père », Valérie's husband: grey hair and moustache, grey sweatshirt with a hood, jeans, always a cigarette.
+// Returns tip too: an Object3D at the lit end of the cigarette, for the smoke.
 export function buildFather() {
-  const g = new THREE.Group(), skin = '#e9b49a', r = 0.12, suit = '#7a2233', white = '#f1f1ee';
-  const lg = legs(g, { y: 0.72, z: 0.09, r: 0.075, pants: suit, shoe: '#5b4a3e', sole: '#2a211b', foot: 0.24 });
-  add(g, s(), suit, 0, 0.77, 0, [0.14, 0.12, 0.18]);
-  add(g, blob('father', v => v.set(v.x * 0.15 * (1 + 0.6 * bump(v.y, -0.2, 0.4) * Math.max(0, v.x)), v.y * 0.3, v.z * 0.19)), suit, 0, 1.08, 0);
+  const g = new THREE.Group(), skin = '#e9b49a', r = 0.12, sweat = '#6b727a', grey = '#b9b8b3', jeans = '#3d4f6e';
+  const lg = legs(g, { y: 0.72, z: 0.09, r: 0.075, pants: jeans, shoe: '#e9e7e1', sole: '#9a9892', foot: 0.24 });
+  add(g, s(), jeans, 0, 0.77, 0, [0.14, 0.12, 0.18]);
+  add(g, blob('father', v => v.set(v.x * 0.15 * (1 + 0.5 * bump(v.y, -0.2, 0.4) * Math.max(0, v.x)), v.y * 0.3, v.z * 0.19)), sweat, 0, 1.08, 0);
+  add(g, G(THREE.CylinderGeometry, 0.16, 0.15, 0.06, 12), '#5a6168', 0, 0.8, 0); // ribbed hem
+  add(g, G(THREE.TorusGeometry, 0.1, 0.04, 6, 12), '#5a6168', -0.05, 1.38, 0).rotation.x = PI / 2; // hood bunched at the neck
   add(g, G(THREE.CylinderGeometry, 0.055, 0.065, 0.12, 10), skin, 0, 1.4, 0);
-  const am = arms(g, { y: 1.32, z: 0.23, len: 0.5, r: 0.055, sleeve: suit, sleeveLen: 0.14, arm: suit, hand: skin, splay: 0.14 });
+  const am = arms(g, { y: 1.32, z: 0.23, len: 0.5, r: 0.055, sleeve: sweat, sleeveLen: 0.4, arm: sweat, hand: skin, splay: 0.14 });
+  const cig = add(am[1].children[0], G(THREE.CylinderGeometry, 0.009, 0.009, 0.09, 6), '#f4f2ea', 0.07, -0.56, 0); cig.rotation.z = PI / 2;
+  add(cig, t(), M('#ff6a2a', { emissive: '#ff4010', emissiveIntensity: 1 }), 0, -0.047, 0, 0.012); // ember
+  const tip = pivot(cig, 0, -0.05, 0);
   const h = head(g, { y: 1.52, r, skin, nose: '#dd9a84', noseR: 0.24 });
-  shell(h, r, [-PI / 2 + 0.15, PI - 0.3, 1.2, 0.95], [1.05, 1.06, 1.05], white); // fringe round the back
-  add(h, s(), white, r * 0.97, -r * 0.32, 0, [r * 0.14, r * 0.1, r * 0.4]); // moustache
+  shell(h, r, [0, 2 * PI, 0, 1.45], [1.08, 1.1, 1.07], grey, -0.012, 0.008).rotation.z = 0.45; // short grey hair
+  add(h, s(), grey, r * 0.97, -r * 0.32, 0, [r * 0.14, r * 0.1, r * 0.4]); // moustache
+  g.scale.setScalar(1.3);
+  return { g, legs: lg, arms: am, tip };
+}
+
+// Stéphane the mechanic: navy work overalls with hi-vis stripes, black rectangular glasses, short dark hair, stubble
+export function buildMechanic() {
+  const g = new THREE.Group(), skin = '#e4b08f', r = 0.12, navy = '#23355a', hiviz = '#e8f03a';
+  const lg = legs(g, { y: 0.74, z: 0.09, r: 0.078, pants: navy, shoe: '#2a2a2a', sole: '#111', foot: 0.26 });
+  for (const k of [-1, 1]) add(lg[(k + 1) / 2], G(THREE.CylinderGeometry, 0.083, 0.083, 0.04, 8), hiviz, 0, -0.45, 0);
+  add(g, s(), navy, 0, 0.8, 0, [0.15, 0.12, 0.19]);
+  add(g, blob('mechanic', v => v.set(v.x * 0.15, v.y * 0.3, v.z * 0.2 * (1 + 0.25 * bump(v.y, 0.75, 0.3)))), navy, 0, 1.1, 0);
+  add(g, G(THREE.CylinderGeometry, 0.2, 0.2, 0.04, 14), hiviz, 0, 0.98, 0, [0.78, 1, 1]); // hi-vis band
+  add(g, G(THREE.BoxGeometry, 0.02, 0.12, 0.1), '#c9ccd0', 0.14, 1.18, 0.06); // pen/tools in the chest pocket
+  add(g, G(THREE.CylinderGeometry, 0.058, 0.066, 0.12, 10), skin, 0, 1.42, 0);
+  const am = arms(g, { y: 1.34, z: 0.24, len: 0.52, r: 0.058, sleeve: navy, sleeveLen: 0.42, arm: navy, hand: skin, splay: 0.14 });
+  const wrench = add(am[1].children[0], G(THREE.BoxGeometry, 0.025, 0.24, 0.035), '#b8bcc2', 0.03, -0.62, 0); // spanner
+  add(wrench, G(THREE.TorusGeometry, 0.03, 0.01, 4, 8), '#b8bcc2', 0, -0.13, 0);
+  const h = head(g, { y: 1.55, r, skin, nose: '#d99a80', noseR: 0.22 });
+  shell(h, r, [0, 2 * PI, 0, 1.3], [1.06, 1.08, 1.05], '#3a2c22', -0.01, 0.01).rotation.z = 0.5; // short dark hair
+  shell(h, r, [PI / 2, PI, 1.9, 1.1], [1.02, 1.04, 1.02], '#6b5a4c'); // stubble
+  for (const k of [-1, 1]) { // black rectangular glasses
+    add(h, G(THREE.BoxGeometry, r * 0.06, r * 0.28, r * 0.42), '#111', r * 1.02, r * 0.14, k * r * 0.35);
+    add(h, G(THREE.BoxGeometry, r * 0.8, r * 0.05, r * 0.05), '#111', r * 0.6, r * 0.2, k * r * 0.88);
+  }
+  add(h, G(THREE.BoxGeometry, r * 0.05, r * 0.05, r * 0.3), '#111', r * 1.04, r * 0.16, 0);
   g.scale.setScalar(1.3);
   return { g, legs: lg, arms: am };
 }

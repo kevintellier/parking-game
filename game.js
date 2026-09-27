@@ -599,21 +599,23 @@ function updateFx(dt) {
   }
   for (const s of smoke) if (s.m.visible) {
     s.t += dt; s.m.position.addScaledVector(s.v, dt); s.v.y *= 1 - dt * 0.6;
-    s.m.scale.setScalar(0.7 + s.t * 1.9);
-    s.m.material = SMOKE[Math.min(7, (s.t / s.life * 8) | 0)];
+    s.m.scale.setScalar((0.7 + s.t * 1.9) * s.k);
+    s.m.material = (s.cig ? CIG : SMOKE)[Math.min(7, (s.t / s.life * 8) | 0)];
     s.m.visible = s.t < s.life;
   }
 }
 // diesel smoke: ring buffer of ≤150 meshes sharing puffGeo and 8 fade-step materials (no per-particle allocation)
 const SMOKE = Array.from({ length: 8 }, (_, i) => new THREE.MeshStandardMaterial({ color: '#1b1b1b', transparent: true, opacity: 0.8 * (1 - i / 8), depthWrite: false, flatShading: true }));
+const CIG = SMOKE.map(m => Object.assign(m.clone(), { color: new THREE.Color('#d8d8d4') })); // cigarette smoke
 const smoke = [];
 let smokeI = 0;
-function smokePuff(p) {
+function smokePuff(p, cig = false) {
   let s = smoke[smokeI];
   if (!s) { s = smoke[smokeI] = { m: new THREE.Mesh(puffGeo, SMOKE[0]), v: new THREE.Vector3() }; scene.add(s.m); }
   smokeI = (smokeI + 1) % 150;
   s.m.position.set(p.x + rand(-0.1, 0.1), p.y, p.z + rand(-0.1, 0.1)); s.m.rotation.set(rand(0, 3), rand(0, 3), 0);
-  s.v.set(rand(-0.5, 0.5), rand(1.4, 2.4), rand(-0.5, 0.5)); s.t = 0; s.life = rand(1.6, 2.6); s.m.visible = true;
+  s.v.set(rand(-0.5, 0.5), rand(1.4, 2.4), rand(-0.5, 0.5)).multiplyScalar(cig ? 0.3 : 1); s.t = 0; s.life = rand(1.6, 2.6); s.m.visible = true;
+  s.cig = cig; s.k = cig ? 0.25 : 1;
 }
 // tiny WebAudio synth: no audio files needed
 let actx = null, muted = false;
@@ -661,12 +663,17 @@ const CAR_TYPES = {
 };
 const AI_COLORS = ['#8c939b', '#d9dcde', '#5b7391', '#7d8288', '#f0f0f0', '#a83c3c', '#56657a', '#b9a98a', '#3f6a8f', '#33373d', '#c8ccd0'];
 const MINE_COLORS = ['#f2b134', '#2ec4b6', '#e76f51', '#9b5de5', '#00bbf9'];
-const NEIGHBOURS = [
-  { name: 'M. Dupont', color: '#2f3e5c', type: 'mpv' },
-  { name: 'Mme Lefèvre', color: '#5b6470', type: 'mpv' },
-  { name: 'M. Moreau', color: '#3c3f44', type: 'suv' },
-  { name: 'Mme Petit', color: '#6b7075', type: 'mini' },
-  { name: 'M. Garnier', color: '#eeeeee', type: 'hatch' },
+const NEIGHBOURS = [ // home: x of their house (they prefer bays near it)
+  { name: 'Marion', color: '#2f3e5c', type: 'mpv', home: -37 },
+  { name: 'Thierry', color: '#5b6470', type: 'mpv' },
+  { name: 'Marie-Claude', color: '#6b7075', type: 'mini', home: -12 },
+  { name: 'Dédé', color: '#3c3f44', type: 'suv', home: -44 },
+  { name: 'Florence', color: '#eeeeee', type: 'hatch' },
+  { name: 'Le père', color: '#8a8f94', type: 'hatch', home: -25 },
+  // Erika's household
+  { name: 'Clément', color: '#8c9196', type: 'hatch', home: -30, dented: true }, // battered grey VW Polo: breaks down every time he parks
+  { name: 'Léa', color: '#b7d3e8', type: 'mini', home: -30 },
+  { name: 'Kévin', color: '#161719', type: 'hatch', home: -30 }, // black BMW Z4 E89
 ];
 const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 14);
 function buildCar(color, type) {
@@ -834,6 +841,7 @@ function finishPark(c) {
   puff(s.x - Math.cos(c.ang) * c.len / 2, s.z, 4, '#cfcfcf');
   if (c.kind === 'foreign') { SFX.fine(); score = Math.max(0, score - STRANGER_FINE); floatText(`Stranger parked! −${STRANGER_FINE}`, s.x, 3.4, s.z, '#ff8fa3'); }
   else floatText(`${c.name} is home`, s.x, 3.4, s.z, '#7ff0e4');
+  if (c.dented) { c.broken = true; floatText('Clément : Encore en panne !', s.x, 4.2, s.z, '#7ff0e4'); callMechanic(c); } // fixed, then broken again next time
 }
 function startLeave(c) {
   const lz = laneZ(c), d = c.dir; // from the actual pose: a truck may have shoved it off the bay centre
@@ -866,7 +874,7 @@ function updateAI(c, dt) {
       return;
     case 'parked':
       c.speed = 0;
-      if ((c.timer -= dt) <= 0 && laneClear(c)) startLeave(c);
+      if ((c.timer -= dt) <= 0 && !c.broken && laneClear(c)) startLeave(c);
       return;
     case 'park':
       if (touchesBelly(c)) return bellyBounce(c);
@@ -1043,6 +1051,11 @@ function actionE() {
   if (!driving) {
     const c = nearestMine();
     if (c && binsInHand) return toast('Put the bin down first (B)');
+    if (c?.broken) {
+      SFX.crank(); floatText('Rrr… rrr… elle démarre pas !', c.x, 3, c.z, '#ffd166');
+      const msg = ST.car === c ? 'Stéphane the mechanic is on it' : ST.car ? 'Stéphane is busy, he comes right after' : "It won't start! Stéphane the mechanic is coming";
+      callMechanic(c); return toast(msg);
+    }
     if (c) {
       driving = c; c.speed = 0; c.rest = { x: c.x, z: c.z, ang: c.ang }; person.g.visible = false; SFX.door();
       if (c.truck) c.smokeT = 8;
@@ -1107,7 +1120,7 @@ function buyCar() {
   score -= price; carsOwned++;
   const m = [buildBMW, buildSpring][carsOwned - 2]?.(ENV);
   const c = addCar('mine', MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length], pick(['hatch', 'mini', 'mpv']), m);
-  Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0 });
+  Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0, broken: Math.random() < 0.35 }); // some won't start: Stéphane comes
   if (m?.exhaust) Object.assign(c, { exhaust: m.exhaust, smoky: true, smokeT: 0 });
   puff(c.x, c.z, 10, '#fff3c4');
   floatText('New car delivered!', c.x, 3.4, c.z, '#ffd166');
@@ -1115,7 +1128,7 @@ function buyCar() {
   SFX.buy();
   pushOut(player);
 }
-const TRUCK_PRICE = 1000;
+const TRUCK_PRICE = 5000;
 let truckOwned = false;
 function buyTruck() {
   if (truckOwned) return toast('You already own the truck');
@@ -1256,7 +1269,7 @@ function update(dt) {
 }
 
 // ───────────────────────── neighbours on foot: Jack & the red-haired lady
-import { buildRedhead, buildJack, buildWife, buildFather } from './models.js';
+import { buildRedhead, buildJack, buildWife, buildFather, buildMechanic } from './models.js';
 const SW = 5.9, BIN_Z = WALL_Z - 0.6, CROSS_XS = [-49, -27, -11.4, 30], RED_GATE = GATES[1][0], JACK_GATE = GATES[-1][2], ARMS_CARRY = 1.2; // arms forward (+rotation.z swings a hanging arm toward +x)
 const CD = Array.from({ length: 11 }, (_, i) => markerMat('#f77f00', g => { g.font = '900 70px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(i, 64, 68); }));
 MARK.jack = markerMat('#06d6a0', g => { g.beginPath(); g.moveTo(64, 98); g.bezierCurveTo(18, 66, 32, 22, 64, 46); g.bezierCurveTo(96, 22, 110, 66, 64, 98); g.fill(); });
@@ -1414,14 +1427,14 @@ function jack(dt) {
 }
 
 // Erika's wife: now and then borrows one of his cars (never the truck) for a drive, then leaves it in front of the garage
-const ww = walker(buildWife), W = { car: null, phase: 'home', wait: rand(50, 80), back: false }, WIFE_HOME = -WALL_Z - 1.6;
+const ww = walker(buildWife), W = { car: null, phase: 'home', wait: rand(120, 180), back: false }, WIFE_HOME = -WALL_Z - 1.6;
 function wife(dt) {
   const c = W.car;
   switch (W.phase) {
     case 'home': case 'away': {
       if ((W.wait -= dt) > 0) return;
       if (W.phase === 'away') { W.back = true; if (enterStreet(c)) W.phase = 'drive'; else W.wait = 1; return; }
-      const free = cars.filter(o => o.kind === 'mine' && !o.truck && o !== driving);
+      const free = cars.filter(o => o.kind === 'mine' && !o.truck && !o.broken && o !== driving);
       if (!free.length) { W.wait = 10; return; }
       const k = W.car = pick(free); k.taken = true;
       Object.assign(W, { phase: 'walk', back: false }); Object.assign(ww, { x: GARAGE_X, z: WIFE_HOME });
@@ -1443,7 +1456,7 @@ function wife(dt) {
       Object.assign(c, { state: 'mine', x: GARAGE_X, z: parkZ(c, -1), ang: 0, speed: 0, blocker: true, taken: false });
       puff(c.x - c.len / 2, c.z, 4, '#cfcfcf'); floatText('Je suis rentrée !', c.x, 3.4, c.z, '#f1c0e8');
       W.car = null; W.phase = 'walk'; Object.assign(ww, { x: c.x - 0.6, z: -5.3 });
-      go(ww, route(ww.x, ww.z, GARAGE_X, WIFE_HOME), () => { ww.g.visible = false; W.phase = 'home'; W.wait = rand(60, 100); });
+      go(ww, route(ww.x, ww.z, GARAGE_X, WIFE_HOME), () => { ww.g.visible = false; W.phase = 'home'; W.wait = rand(180, 240); });
       return;
     case 'drive': {
       const [gap] = obstacleAhead(c), rem = W.back && !garageBusy(c) ? GARAGE_X - c.x : -1;
@@ -1464,15 +1477,17 @@ function wife(dt) {
   }
 }
 
-// little events: a baguette on the sidewalk (speed boost), Erika's father coming out to fart next to her (slowdown)
+// little events: a baguette on the sidewalk (speed boost), « le père » (Valérie's husband, opposite) coming out to fart next to Erika (slowdown)
 const baguette = new THREE.Group(), BAG = { t: rand(20, 35), life: 0 };
 mesh(baguette, new THREE.CapsuleGeometry(0.1, 0.8, 4, 8), '#d99a4e').rotation.z = Math.PI / 2;
 for (const x of [-0.26, 0, 0.26]) box(baguette, 0.08, 0.02, 0.15, '#f3dfb3', x, 0.09, 0).rotation.y = 0.6;
 baguette.scale.setScalar(1.4); baguette.visible = false; scene.add(baguette);
-const pa = walker(buildFather), PA = { t: rand(50, 80), phase: 'home', give: 0, reroute: 0 }, PA_HOME = [GARAGE_X - 1.2, WIFE_HOME];
+const pa = walker(buildFather), PA = { t: rand(50, 80), phase: 'home', give: 0, reroute: 0, smokeT: 0 }, PA_HOME = [RED_GATE + 1.2, RED_HOME], TIP = new THREE.Vector3(); // « le père », Valérie's husband
 const paGoHome = () => { PA.phase = 'back'; go(pa, route(pa.x, pa.z, ...PA_HOME), () => { pa.g.visible = false; PA.phase = 'home'; PA.t = rand(60, 100); }); };
 function events(dt) {
   boostT -= dt; slowT -= dt; chatT -= dt;
+  if (pa.g.visible && (PA.smokeT -= dt) <= 0) { PA.smokeT = 0.3; smokePuff(pa.tip.getWorldPosition(TIP), true); }
+  mechanic(dt);
   const b = baguette.position;
   if (baguette.visible) {
     baguette.rotation.y += dt * 2; b.y = 0.6 + Math.sin(elapsed * 4) * 0.12;
@@ -1492,7 +1507,7 @@ function events(dt) {
     if ((PA.give -= dt) <= 0 || driving) { floatText('Bon…', pa.x, 2.8, pa.z, '#c7e8a0'); return paGoHome(); }
     if (Math.hypot(player.x - pa.x, player.z - pa.z) < 1.3) {
       slowT = 6; SFX.fart(); puff(pa.x, pa.z, 12, '#9ccf5a');
-      floatText('Prrrrout !', pa.x, 2.8, pa.z, '#9ccf5a'); floatText('Oh non, Papa !', player.x, 3.8, player.z, '#ffd166');
+      floatText('Prrrrout !', pa.x, 2.8, pa.z, '#9ccf5a'); floatText('Oh non, le père !', player.x, 3.8, player.z, '#ffd166');
       return paGoHome();
     }
     const close = Math.hypot(player.x - pa.x, player.z - pa.z) < 10;
@@ -1501,6 +1516,26 @@ function events(dt) {
       go(pa, close ? [[player.x, player.z]] : route(pa.x, pa.z, player.x, player.z));
     }
   }
+}
+
+// Stéphane the mechanic: some deliveries won't start; he walks in from Rue du Centre, fixes the car and leaves
+const mech = walker(buildMechanic), ST = { car: null, fixT: 0, clank: 0, queue: [] }, ST_FROM = [-51, -SW];
+function callMechanic(c) {
+  if (ST.car) { if (ST.car !== c && !ST.queue.includes(c)) ST.queue.push(c); return; }
+  ST.car = c; [mech.x, mech.z] = ST_FROM;
+  go(mech, route(mech.x, mech.z, c.x + 0.8, (Math.sign(c.z) || -1) * 5.3), () => {
+    mech.ang = Math.atan2(-(c.z - mech.z), c.x - mech.x); ST.fixT = 6;
+    floatText('Stéphane : Bouge pas, je regarde ça !', mech.x, 3, mech.z, '#9ad0ff');
+  });
+}
+function mechanic(dt) {
+  if (ST.fixT <= 0) return;
+  const c = ST.car;
+  if ((ST.clank -= dt) <= 0) { ST.clank = 1.4; floatText(pick(['Clang !', 'Tac tac…', 'Bzzz…', 'Clonk !']), c.x, 2.4, c.z, '#cfd8e3'); puff(c.x + c.len / 2, c.z, 2, '#bdbdbd'); }
+  if ((ST.fixT -= dt) > 0) return;
+  c.broken = false; SFX.free();
+  floatText(`C'est réparé, ${c.name ?? 'Erika'} !`, mech.x, 3, mech.z, '#9ad0ff');
+  go(mech, route(mech.x, mech.z, ...ST_FROM), () => { mech.g.visible = false; ST.car = null; const n = ST.queue.shift(); if (n?.broken) callMechanic(n); });
 }
 
 function neighbours(dt) {
@@ -1573,7 +1608,26 @@ function selfTestEvents() {
   ok(score < 600 && n.state === 'away', 'neighbour who found no spot costs 500');
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { jack: J, jw, red, W, PA, pa, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents })); // after __game exists
+// self-check: a delivered car that won't start gets fixed by Stéphane; Clément's Polo breaks down each time he parks. Returns 'ok' or throws.
+function selfTestMechanic() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestMechanic: ' + m); };
+  const until = (sec, f) => { for (let t = 0; t < sec && !f(); t += 0.2) window.__game.step(0.2); return f(); };
+  if (driving) { driving.speed = 0; actionE(); }
+  W.wait = PA.t = chatT = BAG.t = 1e9; score = 1e5;
+  buyCar(); const c = cars.at(-1); c.broken = true;
+  Object.assign(player, { x: c.x, z: c.z - 1.5 }); actionE();
+  ok(!driving && ST.car === c, "a broken car won't start: Stéphane is called");
+  ok(until(60, () => !c.broken), 'Stéphane fixes it');
+  actionE(); ok(driving === c, 'fixed car starts'); c.speed = 0; actionE();
+  const cl = cars.find(o => o.name === 'Clément'), q = slots.find(s => !s.ai && !s.block && Math.abs(s.x) < 40 && s.side === 1);
+  if (cl.slot) { cl.slot.ai = null; cl.slot = null; }
+  Object.assign(player, { x: 40, z: -6 });
+  Object.assign(cl, { x: q.x - 8, z: 0, speed: 4, slot: q, state: 'drive', timer: 0 }); cl.mesh.visible = true; q.ai = cl; startPark(cl);
+  ok(until(10, () => cl.state === 'parked') && cl.broken, "Clément's car is broken when he parks");
+  ok(until(120, () => !cl.broken), "Stéphane fixes Clément's car");
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -1585,9 +1639,9 @@ function setup() {
   const freeSlot = () => pick(slots.filter(s => !s.ai && !s.block));
   NEIGHBOURS.forEach((n, i) => {
     const c = addCar('neighbour', n.color, n.type);
-    Object.assign(c, { name: n.name, home: rand(-25, 25) });
+    Object.assign(c, { name: n.name, home: n.home ?? rand(-25, 25), dented: n.dented });
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
-    else { c.state = 'away'; c.timer = rand(30, 90); c.mesh.visible = false; }
+    else { c.state = 'away'; c.timer = rand(30, 150); c.mesh.visible = false; }
   });
   for (const s of [1, -1]) for (const g of GATES[s]) for (const dx of Math.random() < 0.25 ? [2.4, 3.5] : [2.4])
     putBin(newBin('#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])), g + dx, s * BIN_Z);
