@@ -1607,7 +1607,7 @@ function selfTestEvents() {
   if (n.slot) n.slot.ai = null;
   Object.assign(n, { state: 'drive', x: END_X - 0.01, z: 0, speed: 5, wantsSlot: true, slot: null, chat: 0 }); n.mesh.visible = true;
   score = 1000; window.__game.step(0.1);
-  ok(score < 600 && n.state === 'away', 'neighbour who found no spot costs 500');
+  ok(score < 1000 - NEIGHBOUR_FINE + 5 && n.state === 'away', 'neighbour who found no spot is fined');
   return 'ok';
 }
 // self-check: a delivered car that won't start gets fixed by Stéphane; Clément's Polo breaks down each time he parks. Returns 'ok' or throws.
