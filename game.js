@@ -23,7 +23,7 @@ const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_
 // real layout (aguesseau_haut.png): +x = north, Rue du Centre just past -x; west side s=-1: Dédé, Erika, Jack; east side s=1: Marion, Valérie, Marie-Claude
 const SLOT_XS = { 1: [-44.2, -38.8, -33.4, -23.7, -18.3, -8.1, -2.7, 2.7], [-1]: [-41, -35.6, -30.2, -20, -14.6, -3.5, 1.9, 7.3] };
 const GATES = { 1: [-28.6, -13, 20, 38], [-1]: [-46.5, -25, -8.5, 25] };
-const STRANGER_FINE = 10, NEIGHBOUR_FINE = 500;
+const STRANGER_FINE = 10, NEIGHBOUR_FINE = 100;
 const CAR_R = 0.95, MY_R = 0.95, P_R = 0.35, BIN_R = 0.45;
 
 // ───────────────────────── renderer / scene / camera
@@ -926,7 +926,8 @@ function updateAI(c, dt) {
   }
   if (c.x * c.dir > END_X) leaveStreet(c);
 }
-const traffic = () => clamp((elapsed - 45) / 200, 0, 1); // 0 = learning trickle, 1 = rush hour
+// 0 = calm, 1 = rush hour: ~2.5 min waves (short rushes, longer calm spells) that grow stronger over the first minutes
+const traffic = () => clamp((elapsed - 45) / 300, 0, 1) * (0.25 + 0.75 * (0.5 - 0.5 * Math.cos(elapsed * 2 * Math.PI / 150)) ** 2);
 function spawner(dt) {
   if ((spawnT -= dt) > 0) return;
   spawnT = (14 - 11.5 * traffic()) * rand(0.7, 1.3);
@@ -1201,7 +1202,7 @@ function scoring(dt) {
   score += rate * dt;
   if (score > best) { best = score; }
 }
-let hudT = 0, wasProtected = false;
+let hudT = 0, wasProtected = false, trafficLevel = 0;
 function hud(dt) {
   if ((hudT -= dt) > 0) return;
   hudT = 0.1;
@@ -1220,7 +1221,8 @@ function hud(dt) {
   $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
   $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`)
     + (boostT > 0 ? ' · 🥖 fast!' : '') + (slowT > 0 ? ' · 💨 slowed' : '');
-  const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.8 ? 1 : 2;
+  const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.7 ? 1 : 2;
+  if (tl !== trafficLevel) { if (tl === 2) toast('Rush hour! Cars everywhere'); else if (tl === 0 && trafficLevel > 0) toast('Traffic is calming down'); trafficLevel = tl; }
   $('traffic').textContent = ['calm', 'busy', 'rush hour'][tl];
   $('trafficDot').style.background = ['#06d6a0', '#ffd166', '#ef476f'][tl];
   let p = '';
