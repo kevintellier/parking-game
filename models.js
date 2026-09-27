@@ -135,6 +135,38 @@ export function buildRedhead() {
   return { g, legs: lg, arms: am };
 }
 
+// Erika's wife: ash-blonde bob, lilac cardigan, pearl necklace
+export function buildWife() {
+  const g = new THREE.Group(), skin = '#f0c4a8', r = 0.115, slacks = '#3d3a45', lilac = '#a58cc4';
+  const lg = legs(g, { y: 0.74, z: 0.085, r: 0.07, pants: slacks, shoe: '#6b3a2a', foot: 0.21 });
+  add(g, t(), slacks, 0, 0.8, 0, [0.14, 0.12, 0.18]);
+  const cardi = M('#ffffff', { map: knit('wifeCardi', lilac, '#8f76ad', (c, w, h) => { c.fillStyle = '#f6f1e8'; c.fillRect(0, 0, w, h); }) });
+  add(g, blob('wife', v => v.set(v.x * 0.13 * (1 + 0.4 * bump(v.y, 0.25, 0.3) * Math.max(0, v.x)), v.y * 0.3, v.z * 0.18 * (1 + 0.3 * bump(v.y, 0.75, 0.3)))), cardi, 0, 1.1, 0);
+  add(g, G(THREE.CylinderGeometry, 0.055, 0.065, 0.12, 10), skin, 0, 1.4, 0);
+  add(g, G(THREE.TorusGeometry, 0.075, 0.012, 6, 16), '#f4efe4', 0.02, 1.36, 0).rotation.x = PI / 2; // pearls
+  const am = arms(g, { y: 1.33, z: 0.22, len: 0.52, r: 0.055, sleeve: lilac, sleeveLen: 0.12, arm: lilac, hand: skin, splay: 0.12 });
+  const h = head(g, { y: 1.52, r, skin });
+  add(h, t(), '#b8545e', r * 0.94, -r * 0.45, 0, [r * 0.08, r * 0.07, r * 0.24]); // lips
+  shell(h, r, [0, 2 * PI, 0, 1.6], [1.16, 1.14, 1.2], '#cdb68a', -0.012, 0.012).rotation.z = 0.45; // bob
+  g.scale.setScalar(1.3);
+  return { g, legs: lg, arms: am };
+}
+
+// Erika's father: bald with a white fringe and moustache, burgundy tracksuit, little paunch
+export function buildFather() {
+  const g = new THREE.Group(), skin = '#e9b49a', r = 0.12, suit = '#7a2233', white = '#f1f1ee';
+  const lg = legs(g, { y: 0.72, z: 0.09, r: 0.075, pants: suit, shoe: '#5b4a3e', sole: '#2a211b', foot: 0.24 });
+  add(g, s(), suit, 0, 0.77, 0, [0.14, 0.12, 0.18]);
+  add(g, blob('father', v => v.set(v.x * 0.15 * (1 + 0.6 * bump(v.y, -0.2, 0.4) * Math.max(0, v.x)), v.y * 0.3, v.z * 0.19)), suit, 0, 1.08, 0);
+  add(g, G(THREE.CylinderGeometry, 0.055, 0.065, 0.12, 10), skin, 0, 1.4, 0);
+  const am = arms(g, { y: 1.32, z: 0.23, len: 0.5, r: 0.055, sleeve: suit, sleeveLen: 0.14, arm: suit, hand: skin, splay: 0.14 });
+  const h = head(g, { y: 1.52, r, skin, nose: '#dd9a84', noseR: 0.24 });
+  shell(h, r, [-PI / 2 + 0.15, PI - 0.3, 1.2, 0.95], [1.05, 1.06, 1.05], white); // fringe round the back
+  add(h, s(), white, r * 0.97, -r * 0.32, 0, [r * 0.14, r * 0.1, r * 0.4]); // moustache
+  g.scale.setScalar(1.3);
+  return { g, legs: lg, arms: am };
+}
+
 // Jack, the kind old neighbour who helps Erika: 75, thin and stooped, tweed flat cap, white moustache, beige cardigan
 export function buildJack() {
   const g = new THREE.Group(), skin = '#eec2a6', r = 0.115, cord = '#6d4f36', beige = '#cdb68c', white = '#f3f3f0';
@@ -253,4 +285,101 @@ export function buildTruck(env) {
   }) })), 0, 0.03, 0);
   glow.rotation.x = -PI / 2; glow.castShadow = glow.receiveShadow = false;
   return { g, body, len, w, exhaust: ex };
+}
+
+// ───────────── Erika's cars: BMW X3 G01 LCI (bmw.jpeg) and a grey Dacia Spring
+// Contract: { g, body, len, w, exhaust? } like buildTruck; the Spring is electric, so no exhaust.
+// shared base: lower body whose top drops toward the nose, glass cab (tumblehome) + painted roof, dark wheel wells, wheels in g
+function carBase(env, k, { len, w, sill, belt, hood, cab: [rx, fx, tx, trx, h], paint, wheelR, tw, axles, rim }) {
+  const g = new THREE.Group(), body = new THREE.Group(), E = { envMap: env }; g.add(body);
+  const p = M(paint, { roughness: 0.22, metalness: 0.65, ...E }), bh = belt - sill;
+  add(body, once(k + 'body', () => {
+    const geo = new RoundedBoxGeometry(len, bh, w, 3, 0.13), v = geo.attributes.position;
+    for (let i = 0; i < v.count; i++) if (v.getY(i) > 0) v.setY(i, v.getY(i) - hood * Math.min(1, Math.max(0, (v.getX(i) - fx) / (len / 2 - fx))));
+    geo.computeVertexNormals(); return geo;
+  }), p, 0, sill + bh / 2, 0);
+  add(body, once(k + 'cab', () => {
+    const d = w - 0.2, geo = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(rx, 0), new THREE.Vector2(fx, 0), new THREE.Vector2(tx, h), new THREE.Vector2(trx, h * 0.96)]), { depth: d, bevelEnabled: false }).translate(0, 0, -d / 2), v = geo.attributes.position;
+    for (let i = 0; i < v.count; i++) v.setZ(i, v.getZ(i) * (1 - 0.14 * v.getY(i) / h));
+    geo.computeVertexNormals(); return geo;
+  }), M('#1b232c', { roughness: 0.06, metalness: 0.6, ...E }), 0, belt - 0.02, 0);
+  add(body, G(RoundedBoxGeometry, tx - trx + 0.04, 0.07, (w - 0.2) * 0.86 + 0.03, 2, 0.03), p, (tx + trx) / 2 - 0.01, belt + h - 0.01, 0);
+  const tire = once('tire' + wheelR + tw, () => new THREE.CylinderGeometry(wheelR, wheelR, tw, 22).rotateX(PI / 2));
+  const well = once('well' + wheelR, () => new THREE.CircleGeometry(wheelR + 0.05, 16, 0, PI)), disc = once('disc' + wheelR, () => new THREE.CircleGeometry(wheelR * 0.68, 20));
+  for (const x of axles) for (const s of [-1, 1]) {
+    const z = s * (w / 2 - tw / 2 + 0.02);
+    add(g, tire, M('#18181a', { roughness: 0.9 }), x, wheelR, z);
+    add(g, disc, rim, x, wheelR, z + s * (tw / 2 + 0.003)).rotation.y = s > 0 ? 0 : PI;
+    add(body, well, '#0d0d0e', x, wheelR, s * (w / 2 + 0.003)).rotation.y = s > 0 ? 0 : PI;
+  }
+  return { g, body, p, E, L: len / 2 };
+}
+const rimTex = (k, draw) => M('#ffffff', { roughness: 0.3, metalness: 0.8, map: tex(k, 128, 128, (c, w) => { c.translate(w / 2, w / 2); draw(c, w / 2); }) });
+
+export function buildBMW(env) {
+  const len = 4.71, w = 1.89, sill = 0.3, belt = 1.1;
+  const rim = rimTex('bmwRim', (c, r) => { // 18" multi-spoke, dark brakes behind
+    c.fillStyle = '#26282b'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill();
+    c.strokeStyle = '#d4d8dc'; c.lineCap = 'round';
+    for (let i = 0; i < 10; i++) { c.rotate(PI / 5); c.lineWidth = 7; c.beginPath(); c.moveTo(0, 12); c.lineTo(-7, r - 8); c.moveTo(0, 12); c.lineTo(7, r - 8); c.stroke(); }
+    c.lineWidth = 6; c.beginPath(); c.arc(0, 0, r - 4, 0, 2 * PI); c.stroke();
+    c.fillStyle = '#1d1f22'; c.beginPath(); c.arc(0, 0, 14, 0, 2 * PI); c.fill();
+  });
+  const { g, body, p, E, L } = carBase(env, 'bmw', { len, w, sill, belt, hood: 0.13, cab: [-2.2, 0.6, -0.4, -1.98, 0.56], paint: '#2b2f36', wheelR: 0.37, tw: 0.27, axles: [1.47, -1.39], rim });
+  const box = (m, sx, sy, sz, x, y, z) => add(body, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
+  const chrome = M('#d7dce0', { roughness: 0.15, metalness: 1, ...E }), black = M('#141518', { roughness: 0.5 }), trim = M('#8e949a', { roughness: 0.3, metalness: 0.9, ...E });
+  const led = M('#eaf2ff', { emissive: '#d8e8ff', emissiveIntensity: 1.2 }), red = M('#9c0d10', { emissive: '#e01010', emissiveIntensity: 0.7 });
+  // big kidney grille: chrome frames, black vertical slats
+  const slats = M('#ffffff', { roughness: 0.4, metalness: 0.5, map: tex('kidney', 64, 64, (c, s) => { c.fillStyle = '#0c0d0f'; c.fillRect(0, 0, s, s); c.fillStyle = '#5b6066'; for (let x = 3; x < s; x += 8) c.fillRect(x, 0, 3, s); }) });
+  for (const k of [-1, 1]) {
+    add(body, G(RoundedBoxGeometry, 0.05, 0.44, 0.4, 2, 0.06), chrome, L - 0.02, 0.76, k * 0.22);
+    box(slats, 0.03, 0.37, 0.33, L + 0.01, 0.76, k * 0.22);
+    box(led, 0.04, 0.1, 0.44, L - 0.07, 0.93, k * 0.64).rotation.y = -k * 0.12; // slim LED headlights
+    box(black, 0.04, 0.2, 0.08, L - 0.03, 0.5, k * 0.78); // air curtains
+    add(body, G(RoundedBoxGeometry, 0.05, 0.1, 0.4, 2, 0.03), red, -L + 0.02, 0.9, k * 0.66); // L-shaped tail lights
+    box(red, 0.05, 0.16, 0.1, -L + 0.03, 0.82, k * 0.83);
+    box(chrome, 0.06, 0.07, 0.24, -L + 0.02, 0.38, k * 0.55); // twin tailpipes
+    box(trim, 2.6, 0.05, 0.02, -0.1, 0.4, k * (w / 2 + 0.005)); // silver sill strip
+    box(chrome, 2.7, 0.03, 0.02, -0.8, belt + 0.02, k * (w / 2 - 0.1)); // window line
+    box(trim, 1.9, 0.05, 0.05, -1.2, belt + 0.6, k * 0.64); // roof rails
+    for (const x of [-0.45, -1.2]) box(chrome, 0.16, 0.03, 0.03, x, 1.0, k * (w / 2 + 0.01)); // door handles
+    add(body, G(RoundedBoxGeometry, 0.2, 0.13, 0.16, 2, 0.04), p, 0.42, belt + 0.1, k * (w / 2 + 0.06)); // mirrors
+  }
+  box(black, 0.05, 0.14, 1.2, L - 0.04, 0.46, 0); box(trim, 0.05, 0.05, 1.3, L - 0.05, 0.35, 0); // lower intake, skid plate
+  box(M('#f4f4f2'), 0.02, 0.11, 0.5, L + 0.02, 0.56, 0); box(M('#f4f4f2'), 0.02, 0.11, 0.5, -L - 0.01, 0.62, 0); // plates
+  box(trim, 0.05, 0.06, 1.3, -L + 0.03, 0.33, 0);
+  const roundel = M('#ffffff', { map: tex('bmwLogo', 64, 64, (c, s) => {
+    c.fillStyle = '#111'; c.beginPath(); c.arc(32, 32, 31, 0, 2 * PI); c.fill();
+    for (let i = 0; i < 4; i++) { c.fillStyle = i % 2 ? '#fff' : '#1c69d4'; c.beginPath(); c.moveTo(32, 32); c.arc(32, 32, 19, i * PI / 2, (i + 1) * PI / 2); c.fill(); }
+  }) });
+  add(body, once('roundelGeo', () => new THREE.CircleGeometry(0.06, 16).rotateX(-PI / 2).rotateZ(-0.1)), roundel, L - 0.2, belt - 0.1, 0);
+  add(body, G(RoundedBoxGeometry, 0.3, 0.06, 1.35, 2, 0.03), p, -1.98, belt + 0.54, 0); // tailgate spoiler
+  return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.05, 0.38, 0.55) };
+}
+
+export function buildSpring(env) {
+  const len = 3.73, w = 1.58, sill = 0.34, belt = 0.94;
+  const rim = rimTex('springRim', (c, r) => { // grey plastic wheel cover
+    c.fillStyle = '#9ea3a8'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill(); c.fillStyle = '#2a2c2f';
+    for (let i = 0; i < 5; i++) { c.rotate(2 * PI / 5); c.beginPath(); c.ellipse(0, r * 0.58, 9, 20, 0, 0, 2 * PI); c.fill(); }
+    c.beginPath(); c.arc(0, 0, 12, 0, 2 * PI); c.fill();
+  });
+  const { g, body, E, L } = carBase(env, 'spring', { len, w, sill, belt, hood: 0.08, cab: [-1.78, 0.5, -0.35, -1.62, 0.58], paint: '#6d7379', wheelR: 0.3, tw: 0.2, axles: [1.2, -1.22], rim });
+  const box = (m, sx, sy, sz, x, y, z) => add(body, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
+  const clad = M('#1d1e20', { roughness: 0.85 }), chrome = M('#cfd4d8', { roughness: 0.2, metalness: 1, ...E });
+  const led = M('#eef4ff', { emissive: '#e0ecff', emissiveIntensity: 1 }), red = M('#a10f12', { emissive: '#e01010', emissiveIntensity: 0.6 });
+  add(body, G(RoundedBoxGeometry, len + 0.03, 0.2, w + 0.03, 2, 0.08), clad, 0, sill + 0.09, 0); // black plastic skirt all round
+  for (const x of [1.2, -1.22]) for (const k of [-1, 1]) add(body, once('clad', () => new THREE.RingGeometry(0.34, 0.43, 16, 1, 0, PI)), clad, x, 0.3, k * (w / 2 + 0.006)).rotation.y = k > 0 ? 0 : PI;
+  for (const k of [-1, 1]) {
+    box(led, 0.04, 0.035, 0.34, L - 0.05, 0.84, k * 0.5); // DRL strip
+    box(M('#dfe6ee', { roughness: 0.1, metalness: 0.5 }), 0.04, 0.12, 0.26, L - 0.03, 0.72, k * 0.56);
+    box(red, 0.05, 0.22, 0.12, -L + 0.02, 0.8, k * 0.66);
+    box(clad, 1.6, 0.05, 0.05, -0.75, belt + 0.62, k * 0.56); // roof rails
+    add(body, G(RoundedBoxGeometry, 0.16, 0.12, 0.13, 2, 0.04), clad, 0.35, belt + 0.1, k * (w / 2 + 0.05)); // mirrors
+    box(clad, 0.13, 0.03, 0.03, -0.35, 0.86, k * (w / 2 + 0.01));
+  }
+  box(clad, 0.04, 0.2, 0.9, L - 0.01, 0.62, 0); box(chrome, 0.045, 0.03, 0.9, L, 0.7, 0); // grille, chrome bar
+  box(M('#3a3d40'), 0.045, 0.12, 0.2, L, 0.6, 0.22); // charging flap
+  box(M('#f4f4f2'), 0.02, 0.1, 0.46, -L - 0.01, 0.6, 0);
+  return { g, body, len, w };
 }

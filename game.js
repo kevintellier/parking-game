@@ -1,8 +1,15 @@
 import * as THREE from 'three';
-import { buildTruck } from './models.js';
+import { buildTruck, buildBMW, buildSpring } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
+import * as dedeHouse from './houses/dede.js';
+import * as erikaHouse from './houses/erika.js';
+import * as jackHouse from './houses/jack.js';
+import * as cornerHouse from './houses/corner.js';
+import * as marionHouse from './houses/marion.js';
+import * as valerieHouse from './houses/valerie.js';
+import * as marieclaudeHouse from './houses/marieclaude.js';
 
 // ───────────────────────── helpers
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -13,9 +20,10 @@ const $ = id => document.getElementById(id);
 // ───────────────────────── street layout (street runs along X, sides are z>0 (s=1) and z<0 (s=-1))
 // one-way street: a single lane at z=0, traffic always flows toward +x (enters at -END_X, exits at +END_X)
 const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_X = 70, SLOT_LEN = 5.4;
-const SLOT_XS = { 1: [-27, -21.6, -16.2, -10.8, 3.6, 9, 14.4, 19.8], [-1]: [-20, -14.6, -9.2, -3.8, 10.8, 16.2, 21.6, 27] };
-const GATES = { 1: [-40, -3.6, 30, 44], [-1]: [-44, -33, 3.6, 38] };
-const STRANGER_FINE = 10;
+// real layout (aguesseau_haut.png): +x = north, Rue du Centre just past -x; west side s=-1: Dédé, Erika, Jack; east side s=1: Marion, Valérie, Marie-Claude
+const SLOT_XS = { 1: [-44.2, -38.8, -33.4, -23.7, -18.3, -8.1, -2.7, 2.7], [-1]: [-41, -35.6, -30.2, -20, -14.6, -3.5, 1.9, 7.3] };
+const GATES = { 1: [-28.6, -13, 20, 38], [-1]: [-46.5, -25, -8.5, 25] };
+const STRANGER_FINE = 10, NEIGHBOUR_FINE = 500;
 const CAR_R = 0.95, MY_R = 0.95, P_R = 0.35, BIN_R = 0.45;
 
 // ───────────────────────── renderer / scene / camera
@@ -200,8 +208,9 @@ function win(P, x, y, z, rotY, shut, k = 1) {
   if (shut) for (const q of [-1, 1]) box(g, 0.52, 1.32, 0.05, shut, q * 0.8, 0, 0.02);
   else box(g, 1.1, 0.22, 0.14, '#e4e2dc', 0, 0.76, 0.05);
 }
-function oeil(P, x, y, z) { // oval "œil-de-bœuf" facing +x
-  for (const [r, t, c] of [[0.5, 0.08, '#a9cfc0'], [0.38, 0.1, GLASS]]) { const m = mesh(P, new THREE.CylinderGeometry(r, r, t, 20), c, x, y, z); m.rotation.z = Math.PI / 2; m.scale.z = 1.35; }
+function oeil(P, x, y, z, rotY = 0) { // oval "œil-de-bœuf" facing +x (rotY -π/2: facing +z)
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = rotY; P.add(g);
+  for (const [r, t, c] of [[0.5, 0.08, '#a9cfc0'], [0.38, 0.1, GLASS]]) { const m = mesh(g, new THREE.CylinderGeometry(r, r, t, 20), c); m.rotation.z = Math.PI / 2; m.scale.z = 1.35; }
 }
 function door(P, x, z, rotY, color, porch, rm) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY; P.add(g);
@@ -215,7 +224,7 @@ function door(P, x, z, rotY, color, porch, rm) {
 }
 function house(P, cx, s, zf, o = {}) {
   const w = o.w ?? sr(7.5, 10), d = o.d ?? sr(7.5, 9), h = o.h ?? sp([3.5, 3.8, 5.6, 5.8, 6.1]), up = h > 5;
-  const wc = o.wall ?? sp(WALLS), sc = o.shut !== undefined ? o.shut : sp(SHUTTERS), rm = sp(ROOFS);
+  const wc = o.wall ?? sp(WALLS), sc = o.shut !== undefined ? o.shut : sp(SHUTTERS), rm = o.roof ? tmat(tileTex, o.roof, { roughness: 0.75 }) : sp(ROOFS);
   const g = new THREE.Group(); g.position.set(cx, 0, s * (zf + d / 2)); P.add(g);
   box(g, w, h, d, wc, 0, h / 2, 0);
   box(g, w + 0.1, 0.5, d + 0.1, '#bcb4a6', 0, 0.25, 0);
@@ -248,19 +257,30 @@ function house(P, cx, s, zf, o = {}) {
   for (const q of [-s, s]) {
     const z = q * fz, rot = q > 0 ? 0 : Math.PI;
     xs.forEach((x, i) => {
-      if (q === -s && i === di) door(g, x, z, rot, dc, porch, rm); else win(g, x, 1.5, z, rot, sc);
+      if (q === -s && Math.abs(x - o.gdoor) < 1.6) { /* garage door below */ } else if (q === -s && i === di) door(g, x, z, rot, dc, porch, rm); else win(g, x, 1.5, z, rot, sc);
       if (up) win(g, x, h - 1.5, z, rot, sc);
     });
-    if (!along && rh > 1.7) win(g, 0, h + rh * 0.3, z, rot, sc, 0.75);
+    if (!along && rh > 1.7) o.oeil ? oeil(g, 0, h + rh * 0.3, z + q * 0.01, -q * Math.PI / 2) : win(g, 0, h + rh * 0.3, z, rot, o.gshut ?? sc, 0.75);
+  }
+  if (o.gdoor !== undefined) { // ground-floor garage door: dark grid
+    const z = -s * (fz + 0.01);
+    box(g, 2.5, 2.2, 0.06, '#2d3034', o.gdoor, 1.1, z);
+    for (let i = 1; i < 5; i++) { box(g, 2.5, 0.04, 0.09, '#5d6166', o.gdoor, i * 0.44, z); box(g, 0.04, 2.2, 0.09, '#5d6166', o.gdoor - 1.25 + i * 0.5, 1.1, z); }
+  }
+  if (o.dormer) { // wide shed dormer on the street slope, two roller-shuttered windows
+    const dw = w * 0.6, dh = 1.9, dd = d / 2 - 0.4, rot = s < 0 ? 0 : Math.PI;
+    box(g, dw, dh, dd, wc, 0, h + dh / 2, -s * (d / 2 - 0.2 - dd / 2));
+    box(g, dw + 0.3, 0.12, dd + 0.3, '#e9e7e2', 0, h + dh + 0.06, -s * (d / 2 - 0.2 - dd / 2));
+    for (const x of [-dw / 4, dw / 4]) win(g, x, h + 0.95, -s * (d / 2 - 0.17), rot, null, 0.9);
   }
   for (let i = 0, m = Math.max(1, Math.round(d / 3.2)); i < m; i++) for (const y of up ? [1.5, h - 1.5] : [1.5]) win(g, w / 2 + 0.03, y, -d / 2 + (i + 0.5) * d / m, Math.PI / 2, sc);
   if (along && rh > 1.7) o.oeil ? oeil(g, w / 2 + 0.04, h + rh * 0.35, 0) : win(g, w / 2 + 0.03, h + rh * 0.3, 0, Math.PI / 2, sc, 0.75);
-  if (o.balcony && up) { // first-floor balcony with a grey X-pattern railing
-    const bw = Math.min(3.6, w - 1.2), z1 = -s * (fz + 1.1), zc = -s * (fz + 0.55);
-    box(g, bw, 0.14, 1.1, '#e4e2dc', 0, 3.0, zc);
-    box(g, bw, 0.05, 0.05, '#8d9296', 0, 4.02, z1);
-    for (const x of [-bw / 2, bw / 2]) { box(g, 0.05, 1.0, 0.05, '#8d9296', x, 3.55, z1); box(g, 0.05, 0.05, 1.1, '#8d9296', x, 4.02, zc); }
-    for (let x = -bw / 2 + 0.45; x < bw / 2; x += 0.9) for (const t of [-1, 1]) box(g, 0.03, 1.2, 0.03, '#8d9296', x, 3.52, z1).rotation.z = t * 0.72;
+  if (o.balcony !== undefined && up) { // first-floor balcony (centred at x = o.balcony) with a dark X-pattern railing
+    const bw = Math.min(3.6, w - 1.2), bx = o.balcony, z1 = -s * (fz + 1.1), zc = -s * (fz + 0.55), rc = '#4a4e52';
+    box(g, bw, 0.14, 1.1, '#e4e2dc', bx, 3.0, zc);
+    box(g, bw, 0.05, 0.05, rc, bx, 4.02, z1);
+    for (const x of [bx - bw / 2, bx + bw / 2]) { box(g, 0.05, 1.0, 0.05, rc, x, 3.55, z1); box(g, 0.05, 0.05, 1.1, rc, x, 4.02, zc); }
+    for (let x = bx - bw / 2 + 0.45; x < bx + bw / 2; x += 0.9) for (const t of [-1, 1]) box(g, 0.03, 1.2, 0.03, rc, x, 3.52, z1).rotation.z = t * 0.72;
   }
   if (o.garage) { // flat-roofed garage annex on the +x side
     const gx = w / 2 + 1.7, gz = -s * (d / 2 - 2.6);
@@ -351,20 +371,39 @@ function gate(g, s, lot) {
   if (lot.num) plate(g + 1.8, 1.4, fz, lot.num);
 }
 // lot boundaries per side; heroes pin a house/boundary to the lot containing x
-const CUTS = { 1: [-52, -46, -34, -22, -10, 2, 13.5, 25, 36, 46, 52], [-1]: [-52, -39, -27, -15.5, -3, 10, 21, 32, 43, 52] };
+const CUTS = { 1: [-52, -43, -31, -19, -6, 7, 19, 30, 41, 52], [-1]: [-52, -37, -23, -6, 7, 19, 31, 42, 52] };
 const LOT_STYLES = ['green', 'anth', 'hedge', 'black', 'thuja', 'photinia', 'green'];
+// real houses: one module per lot in houses/ (lot data + builder)
 const HEROES = [
-  { s: -1, x: 3.6, style: 'green', num: '14', mail: '#2d5a43', house: { wall: '#efe1c3', shut: '#5b3626', along: true, porch: true, velux: true, h: 5.7, w: 8.8, d: 8 } }, // Erika
-  { s: 1, x: -3.6, style: 'anth', num: '11', mail: '#3a3d40', house: { wall: '#f6f4ef', shut: '#b3babf', along: false, h: 5.8, w: 7.4, d: 9.5 } }, // Jack
-  { s: -1, x: -33, style: 'pink', num: '8', mail: '#a9cfc0', poppies: true, house: { wall: '#e6a08a', shut: null, along: true, oeil: true, porch: true, h: 3.9, w: 8.4, d: 8 } }, // red-haired neighbour
-  { s: -1, x: -9, style: 'laurel' },
-  { s: -1, x: -21, banana: true, house: { h: 5.8, along: true } },
-  { s: -1, x: 26, house: { balcony: true, wall: '#f5f3ee', shut: null, along: false, h: 5.9 } },
-];
+  { s: -1, x: -44, mod: dedeHouse }, // Dédé (89)
+  { s: -1, x: -30, mod: erikaHouse }, // Erika (the player)
+  { s: -1, x: -15, mod: jackHouse }, // Jack, behind his tall laurel hedge
+  { s: 1, x: -48, mod: cornerHouse }, // corner house on Rue du Centre
+  { s: 1, x: -37, mod: marionHouse }, // Marion (88)
+  { s: 1, x: -25, mod: valerieHouse }, // Valérie, the red-haired neighbour, and her husband « le père »
+  { s: 1, x: -12, mod: marieclaudeHouse }, // Marie-Claude
+].map(h => ({ ...h, ...h.mod.hero, build: h.mod.default }));
+// front garden: only low stuff on the camera side (s>0) so the street stays visible
+function garden(l) {
+  const s = l.s, free = x => l.gate === undefined || Math.abs(x - l.gate) > 2.6;
+  for (let i = 0; i < 3; i++) {
+    const x = sr(l.x0 + 1, l.x1 - 1);
+    if (!free(x)) continue;
+    if (s < 0 && !l.house && rnd() < 0.55) tree(S, x, s * sr(9, 10.3), sr(4, 6.5), sp(['green', 'cone', Math.abs(x) > 20 ? 'red' : 'green']));
+    else shrub(S, x, s * sr(8.4, 10.3), sr(0.5, 0.85));
+  }
+  if (l.banana) banana(S, l.x1 - 2.5, s * 8.8);
+  if (l.maple) tree(S, l.cx - 1.5, s * 9.6, 3.6, 'red'); // Japanese maple
+  if (l.poppies || (s < 0 && rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate);
+}
+// everything a houses/*.js builder may use. l (the lot): { x0, x1, cx, s, zf, gate, st, ...hero }; street facade line z = s*zf,
+// front wall z = s*WALL_Z; the game camera looks from +x/+z. Keep to x0..x1 and |z| > WALL_Z + 0.3; S is merged per material.
+const KIT = { THREE, S, box, tbox, mesh, M, tmat, canvasTex, inst, GLASS, LAMP, tileTex, ROOFS, WALLS, SHUTTERS, GREENS, REDS, HEDGES, STYLES, BLOB, FLOWER, TUFT, CONE, TRUNK, BALL, BAR, SLAT, WAVE, COBBLE, WALK,
+  win, door, oeil, house, garden, blob, tree, shrub, hedge, zhedge, banana, poppies, pillar, plate, rnd, sr, sp, V2, V3, WALL_Z, CURB_Z, SLOT_Z, GATES };
 function row(s, cuts, gates = [], main = true) {
   const zf = s > 0 ? 13.2 : 11.5, lots = cuts.slice(0, -1).map((x0, i) => {
     const x1 = cuts[i + 1], hero = (main && HEROES.find(h => h.s === s && h.x > x0 && h.x < x1)) || {};
-    return { x0, x1, ...hero, st: STYLES[hero.style ?? sp(LOT_STYLES)], gate: gates.find(g => g > x0 && g < x1) };
+    return { x0, x1, s, zf, cx: (x0 + x1) / 2, ...hero, st: typeof hero.style === 'object' ? hero.style : STYLES[hero.style ?? sp(LOT_STYLES)], gate: gates.find(g => g > x0 && g < x1) };
   });
   const xs = [...new Set([...cuts, ...gates.flatMap(g => [g - 1.8, g + 1.8])])].sort((p, q) => p - q);
   for (let i = 0; i < xs.length - 1; i++) {
@@ -372,22 +411,20 @@ function row(s, cuts, gates = [], main = true) {
     if (g !== undefined) gate(g, s, lot); else fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01));
   }
   for (const l of lots) {
-    const lw = l.x1 - l.x0, cx = (l.x0 + l.x1) / 2, free = x => l.gate === undefined || Math.abs(x - l.gate) > 2.6;
-    if (lw > 9) {
-      const o = { doorX: l.gate, ...l.house };
-      o.w ??= Math.min(sr(7.5, 10), lw - 3); o.garage ??= lw - o.w > 7.2 && rnd() < 0.6;
-      const h = house(S, cx + (l.house ? 0 : sr(-0.5, 0.5)), s, zf, o);
-      if (main && s < 0) FRONTS.push(V3(cx + sr(-2, 2), h - 0.5, s * zf + 0.05));
+    const lw = l.x1 - l.x0, cx = l.cx;
+    if (l.build) { // real house: its module draws the lot; the seed is restored so the rest of the street doesn't depend on it
+      const s0 = seed, h = l.build(KIT, l);
+      seed = s0;
+      if (s < 0) FRONTS.push(V3(cx, h - 0.5, s * zf + 0.05));
+    } else {
+      if (lw > 9) {
+        const o = { doorX: l.gate };
+        o.w = Math.min(sr(7.5, 10), lw - 3); o.garage = lw - o.w > 7.2 && rnd() < 0.6;
+        const h = house(S, cx + sr(-0.5, 0.5), s, zf, o);
+        if (main && s < 0) FRONTS.push(V3(cx + sr(-2, 2), h - 0.5, s * zf + 0.05));
+      }
+      garden(l);
     }
-    // front garden: only low stuff on the camera side (s>0) so the street stays visible
-    for (let i = 0; i < 3; i++) {
-      const x = sr(l.x0 + 1, l.x1 - 1);
-      if (!free(x)) continue;
-      if (s < 0 && !l.house && rnd() < 0.55) tree(S, x, s * sr(9, 10.3), sr(4, 6.5), sp(['green', 'cone', Math.abs(x) > 20 ? 'red' : 'green']));
-      else shrub(S, x, s * sr(8.4, 10.3), sr(0.5, 0.85));
-    }
-    if (l.banana) banana(S, l.x0 + 2.5, s * 8.8);
-    if (s < 0 && (l.poppies || rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate);
     if (l.x1 < cuts.at(-1)) zhedge(l.x1, s * (WALL_Z + 0.4), s * (zf - 0.3), 1.2, sp(Object.values(HEDGES).slice(0, 3)), 0.7); // between front gardens
     tree(S, sr(l.x0 + 1, l.x1 - 1), s * sr(22, 26), sr(4.5, 7.5), sp(['green', 'green', 'red', 'cone']));
   }
@@ -457,7 +494,7 @@ function buildWorld() {
   for (const x of [-40, 0, 40]) mesh(S, arrow, '#efefe9', x, 0.008, 0);
 
   // wooden utility poles with arm-mounted lamps, droopy overhead wires and service drops (far side, like the photos)
-  const poleXs = [-46, -26, -6, 14, 34], pz = -6.85, WIRE = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
+  const poleXs = [-38, -22.5, -2, 18, 38], pz = -6.85, WIRE = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
   const wire = (p, q, sag) => scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([...Array(13)].map((_, k) => V3().lerpVectors(p, q, k / 12).setY(p.y + (q.y - p.y) * k / 12 - Math.sin(Math.PI * k / 12) * sag))), WIRE));
   for (const x of poleXs) {
     mesh(S, new THREE.CylinderGeometry(0.11, 0.16, 8.8, 7), '#6f5238', x, 4.4, pz);
@@ -599,6 +636,17 @@ const SFX = {
   fine: () => beep([300, 190], 0.13, 'square', 0.035),
   free: () => beep([880, 1175], 0.07, 'sine', 0.07),
   door: () => beep([160], 0.07, 'square', 0.04),
+  crank: () => beep([55, 62, 50, 95], 0.11, 'sawtooth', 0.05),
+  fart: () => beep([95, 80, 88, 66, 72, 52], 0.08, 'sawtooth', 0.07),
+  boing: () => { // spring: pitch jumps then wobbles down
+    if (!actx || muted) return;
+    const t0 = actx.currentTime, o = actx.createOscillator(), lfo = actx.createOscillator(), lg = actx.createGain(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(150, t0); o.frequency.exponentialRampToValueAtTime(360, t0 + 0.06); o.frequency.exponentialRampToValueAtTime(190, t0 + 0.45);
+    lfo.frequency.value = 22; lg.gain.setValueAtTime(70, t0); lg.gain.exponentialRampToValueAtTime(1, t0 + 0.45);
+    g.gain.setValueAtTime(0.14, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+    lfo.connect(lg).connect(o.frequency); o.connect(g).connect(actx.destination);
+    o.start(t0); lfo.start(t0); o.stop(t0 + 0.5); lfo.stop(t0 + 0.5);
+  },
 };
 const nearPlayer = (x, z, r = 28) => { const w = driving || player; return Math.hypot(x - w.x, z - w.z) < r; };
 let toastT;
@@ -700,12 +748,12 @@ ring.rotation.x = -Math.PI / 2; ring.position.y = 0.2; scene.add(ring);
 
 // ───────────────────────── game state
 const keys = {};
-let driving = null, score = 50, elapsed = 0, streak = 0, rate = 0, mult = 1, spawnT = 8;
-let binsInHand = null, binsBought = 0, carsOwned = 1, started = false, paused = false, foreignN = 0;
+let belly = 0, driving = null, score = 50, elapsed = 0, streak = 0, rate = 0, mult = 1, spawnT = 8;
+let boostT = 0, slowT = 0, chatT = rand(30, 50); // speed boost (baguette), slowdown (father's fart), cooldown before a driver stops to chat
+let binsInHand = null, carsOwned = 1, started = false, paused = false, foreignN = 0;
 let best = 0;
 try { best = +localStorage.getItem('parkingGuardBest') || 0; } catch {}
 const carPrice = () => 200 * 2 ** (carsOwned - 1);
-const binPrice = () => 40 + 12 * binsBought;
 
 // ───────────────────────── AI (strangers + neighbours)
 const laneZ = c => c.dir * LANE_Z;
@@ -736,7 +784,8 @@ function obstacleAhead(c) {
     const along = (x - c.x) * c.dir;
     if (along > 0 && Math.abs(z - c.z) < lat && along - clear < gap) { gap = along - clear; who = o; }
   };
-  for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked') for (const [x, z, r] of circles(o)) test(o, x, z, c.len / 2 + r + 1.2, CAR_R + r);
+  // only cars whose centre is ahead: two overlapping cars would otherwise each wait for the other forever
+  for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked' && (o.x - c.x) * c.dir > 0) for (const [x, z, r] of circles(o)) test(o, x, z, c.len / 2 + r + 1.2, CAR_R + r);
   if (!driving) test(player, player.x, player.z, c.len / 2 + 1.2);
   for (const b of bins) test(b, b.x, b.z, c.len / 2 + 1);
   for (const w of walkers) if (w.g.visible) test(w, w.x, w.z, c.len / 2 + 1.2);
@@ -767,7 +816,11 @@ function enterStreet(c) {
 function leaveStreet(c) {
   if (c.slot) { c.slot.ai = null; c.slot = null; }
   if (c.kind === 'foreign') { scene.remove(c.mesh); cars.splice(cars.indexOf(c), 1); return; }
-  c.state = 'away'; c.timer = rand(15, 60); c.mesh.visible = false;
+  if (c.kind === 'neighbour' && c.wantsSlot) { // drove the whole street without finding a bay
+    score = Math.max(0, score - NEIGHBOUR_FINE); SFX.fine();
+    toast(`${c.name} couldn't park in the street! −${NEIGHBOUR_FINE}`);
+  }
+  c.state = 'away'; c.timer = c.kind === 'neighbour' ? rand(90, 180) : rand(15, 60); c.mesh.visible = false;
 }
 function startPark(c) {
   const s = c.slot, lz = laneZ(c), d = c.dir;
@@ -783,13 +836,30 @@ function finishPark(c) {
   else floatText(`${c.name} is home`, s.x, 3.4, s.z, '#7ff0e4');
 }
 function startLeave(c) {
-  const s = c.slot, lz = laneZ(c), d = c.dir;
-  c.path = [[s.x, s.z], [s.x + d * 3, s.z], [s.x + d * 6, lz], [s.x + d * 9, lz]];
-  c.dur = 3; c.t = 0; c.state = 'leave';
-  puff(s.x - d * c.len / 2, s.z, 5, '#bdbdbd');
+  const lz = laneZ(c), d = c.dir; // from the actual pose: a truck may have shoved it off the bay centre
+  c.path = [[c.x, c.z], [c.x + d * 3, c.z], [c.x + d * 6, lz], [c.x + d * 9, lz]];
+  c.dur = 3; c.t = 0; c.state = 'leave'; c.shoved = 0;
+  puff(c.x - d * c.len / 2, c.z, 5, '#bdbdbd');
+}
+const PATIENCE = 8; // s a car waits behind Erika (on foot or in one of her cars) before shoving her aside
+const touchesBelly = c => !driving && pedPush({ x: player.x, z: player.z }, c, P_R + 0.12);
+function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off her belly and gives up the bay
+  const dx = c.x - player.x, dz = c.z - player.z, d = Math.hypot(dx, dz) || 1;
+  c.slot.ai = null; c.slot = null; c.state = 'drive'; c.speed = 0;
+  c.kick = 1; c.kx = dx / d * 3.5; c.kz = dz / d * 3.5; belly = 1;
+  SFX.boing(); floatText('Boing!', player.x, 3, player.z, '#ffd166');
+}
+// nudge the blocker sideways (either side), else along the lane; the player on foot always gives way
+function shoveAside(c, o, dt) {
+  if (c.stuckT - dt <= PATIENCE) { floatText('Pousse-toi !', c.x, 3, c.z, '#ff8fa3'); if (nearPlayer(c.x, c.z)) SFX.honk(); }
+  const side = Math.sign(o.z) || 1, v = 2.5 * dt;
+  if (o === player) { player.z += side * v; return pushOut(player); }
+  const pen = carPen(o, o.x, o.z, o.ang);
+  for (const [dx, dz] of [[0, side], [0, -side], [c.dir, 0]]) if (carPen(o, o.x + dx * v, o.z + dz * v, o.ang) <= pen + 1e-4) { o.x += dx * v; o.z += dz * v; return; }
 }
 function updateAI(c, dt) {
   c.honkT -= dt;
+  if (c.kick > 0) { c.x += c.kx * c.kick * dt; c.z += c.kz * c.kick * dt; c.kick -= dt * 4; }
   switch (c.state) {
     case 'away':
       if ((c.timer -= dt) <= 0 && !enterStreet(c)) c.timer = 1;
@@ -799,6 +869,7 @@ function updateAI(c, dt) {
       if ((c.timer -= dt) <= 0 && laneClear(c)) startLeave(c);
       return;
     case 'park':
+      if (touchesBelly(c)) return bellyBounce(c);
       if (followPath(c, dt, t => 1 - (1 - t) ** 2)) finishPark(c);
       return;
     case 'leave':
@@ -809,6 +880,16 @@ function updateAI(c, dt) {
       return;
   }
   // drive
+  if (c.chat > 0) { // stopped to chat with Erika: the traffic behind has to wait
+    c.speed = Math.max(0, c.speed - 14 * dt); c.x += c.speed * c.dir * dt;
+    if ((c.chat -= dt) <= 0) floatText('Allez, à plus Erika !', c.x, 3, c.z, '#cdb4ff');
+    return;
+  }
+  if (chatT <= 0 && !driving && Math.abs(player.x - c.x) < 3 && Math.abs(player.z - c.z) < 5.5) {
+    c.chat = rand(5, 8); chatT = rand(45, 75);
+    floatText(pick(['Salut Erika ! Ça va ?', 'Oh Erika ! Tu connais la nouvelle ?', 'Erika ! Ça fait longtemps !']), c.x, 3.2, c.z, '#cdb4ff');
+    floatText(pick(['Ah salut !', 'Ben dis donc !', 'Oh bah ça alors !']), player.x, 3.8, player.z, '#ffd166');
+  }
   if (c.wantsSlot && !c.slot && (c.scan -= dt) <= 0) {
     c.scan = 0.3;
     const s = findSlot(c);
@@ -824,11 +905,13 @@ function updateAI(c, dt) {
       if (rem <= 9 && gap > 1) return startPark(c);
     }
   }
+  c.stuckT = gap < 0.5 && (who === player || who?.kind === 'mine') ? (c.stuckT || 0) + dt : 0;
+  if (c.stuckT > PATIENCE) shoveAside(c, who, dt);
   c.speed += clamp(target - c.speed, -14 * dt, 5 * dt);
   c.x += c.speed * c.dir * dt;
   c.z += (laneZ(c) - c.z) * Math.min(1, dt * 3);
   c.ang = c.dir > 0 ? 0 : Math.PI;
-  if (gap < 0.3 && c.honkT <= 0 && (who === player || who?.kind === 'mine' || bins.includes(who))) {
+  if (gap < 0.3 && c.honkT <= 0 && (who === player || who?.kind === 'mine' || who?.chat > 0 || bins.includes(who))) {
     c.honkT = rand(3, 5);
     if (nearPlayer(c.x, c.z)) SFX.honk();
     floatText(pick(['BEEP!', 'Pouet!', 'HONK!']), c.x, 3, c.z, '#ffd166');
@@ -845,12 +928,12 @@ function spawner(dt) {
 }
 
 // ───────────────────────── player movement & actions
-function carPen(c, x, z, ang) {
+function carPen(c, x, z, ang, skip = []) {
   let pen = 0;
   for (const [ax, az, ar] of circles(c, x, z, ang)) {
     pen += Math.max(0, Math.abs(az) + ar - CURB_Z) + Math.max(0, Math.abs(ax) - 62);
     for (const o of cars) {
-      if (o === c || o.state === 'away') continue;
+      if (o === c || o.state === 'away' || skip.includes(o)) continue;
       for (const [bx, bz, br] of circles(o)) pen += Math.max(0, ar + br - Math.hypot(ax - bx, az - bz));
     }
     for (const b of bins) pen += Math.max(0, ar + BIN_R - Math.hypot(ax - b.x, az - b.z));
@@ -874,33 +957,53 @@ function drive(c, dt) {
   const ang = c.ang + steer * clamp(c.speed, -4, 4) * c.turn * dt, k = c.pivot, d = c.speed * dt; // turns about a point k m behind the centre (rear axle)
   const x = c.x - Math.cos(c.ang) * k + Math.cos(ang) * (k + d), z = c.z + Math.sin(c.ang) * k - Math.sin(ang) * (k + d);
   const before = carPen(c, c.x, c.z, c.ang), after = carPen(c, x, z, ang);
-  if (after <= before + 1e-4) Object.assign(c, { x, z, ang });
+  if (after > before + 1e-4 && c.truck && truckShove(c, x, z, ang)) Object.assign(c, { x, z, ang });
+  else if (after <= before + 1e-4) Object.assign(c, { x, z, ang });
   else {
     if (Math.abs(c.speed) > 3) { puff(x, z, 3, '#ddd'); floatText('Bump!', c.x, 2.8, c.z, '#ffd166'); }
     c.speed *= -0.2;
   }
-  if (c.truck) truckFx(c, dt);
+  if (c.exhaust) exhaustFx(c, dt);
 }
-// black diesel smoke (idle trickle, more with speed, lots on the throttle) + low rumble
-function truckFx(c, dt) {
+// the truck shoves parked strangers/neighbours along with it; after ~1 m they give up the bay and drive off
+function truckShove(c, x, z, ang) {
+  const tc = circles(c, x, z, ang);
+  const hit = cars.filter(o => o.state === 'parked' && (o.kind === 'foreign' || o.kind === 'neighbour') && circles(o).some(([bx, bz, br]) => tc.some(([ax, az, ar]) => Math.hypot(ax - bx, az - bz) < ar + br)));
+  if (!hit.length || carPen(c, x, z, ang, hit) > carPen(c, c.x, c.z, c.ang, hit) + 1e-4) return false;
+  const dx = x - c.x, dz = z - c.z;
+  for (const o of hit) {
+    o.x += dx; o.z += dz;
+    if ((o.shoved = (o.shoved || 0) + Math.hypot(dx, dz)) > 1) { startLeave(o); floatText('Shoved out!', o.x, 3.2, o.z, '#ffd166'); SFX.honk(); }
+  }
+  return true;
+}
+// black smoke: the truck's diesel (idle trickle, more with speed, lots on the throttle) + low rumble; the BMW coughs a cloud at start-up
+function exhaustFx(c, dt) {
   const v = Math.abs(c.speed);
-  c.smokeT += dt * (v > 0.3 ? 12 + v * 3 + (keys.up ? 30 : 0) : 3);
+  if (c.truck) c.smokeT += dt * (v > 0.3 ? 12 + v * 3 + (keys.up ? 30 : 0) : 3);
+  if (c.cough > 0) { c.cough -= dt; c.smokeT += dt * 45; }
   if (c.smokeT >= 1) {
     c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = c.ang; c.mesh.updateMatrixWorld();
     const p = c.mesh.localToWorld(c.exhaust.clone());
     for (; c.smokeT >= 1; c.smokeT--) smokePuff(p);
   }
-  if ((c.rumbleT -= dt) <= 0) { c.rumbleT = 0.16; beep([36 + v * 5], 0.18, 'sawtooth', keys.up ? 0.035 : 0.02); }
+  if (c.truck && (c.rumbleT -= dt) <= 0) { c.rumbleT = 0.16; beep([36 + v * 5], 0.18, 'sawtooth', keys.up ? 0.035 : 0.02); }
 }
 const pedBounds = p => { p.x = clamp(p.x, -60, 60); p.z = clamp(p.z, -WALL_Z + 0.45, WALL_Z - 0.45); };
+// pedestrian vs vehicle: the footprint is a len × 2r box (the collision circles leave gaps along the sides of long cars)
+function pedPush(p, o, m = P_R) {
+  const cs = Math.cos(o.ang), sn = Math.sin(o.ang), dx = p.x - o.x, dz = p.z - o.z, L = o.len / 2, R = o.r;
+  let lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+  const qx = clamp(lx, -L, L), qz = clamp(lz, -R, R), d = Math.hypot(lx - qx, lz - qz);
+  if (d >= m) return false;
+  if (d > 1e-6) { lx = qx + (lx - qx) / d * m; lz = qz + (lz - qz) / d * m; }
+  else if (R - Math.abs(lz) < L - Math.abs(lx)) lz = (Math.sign(lz) || 1) * (R + m);
+  else lx = (Math.sign(lx) || 1) * (L + m);
+  p.x = o.x + lx * cs + lz * sn; p.z = o.z - lx * sn + lz * cs;
+  return true;
+}
 function pushOut(p) {
-  for (const o of cars) {
-    if (o.state === 'away') continue;
-    for (const [bx, bz, r] of circles(o)) {
-      const dx = p.x - bx, dz = p.z - bz, d = Math.hypot(dx, dz), m = r + P_R;
-      if (d < m && d > 1e-4) { p.x = bx + (dx / d) * m; p.z = bz + (dz / d) * m; }
-    }
-  }
+  for (const o of cars) if (o.state !== 'away') pedPush(p, o);
   for (const b of bins) {
     const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz), m = BIN_R + P_R;
     if (d < m && d > 1e-4) { p.x = b.x + (dx / d) * m; p.z = b.z + (dz / d) * m; }
@@ -915,17 +1018,16 @@ function walk(dt) {
   player.moving = len > 0;
   if (len) {
     vx /= len; vz /= len;
-    const v = binsInHand ? 4.3 : 6.2;
+    const v = (binsInHand ? 4.3 : 6.2) * (boostT > 0 ? 1.6 : 1) * (slowT > 0 ? 0.45 : 1);
     player.x += vx * v * dt; player.z += vz * v * dt;
     player.ang = Math.atan2(-vz, vx);
   }
   pushOut(player);
 }
-const pedFree = (x, z) => Math.abs(z) < WALL_Z - 0.45 && Math.abs(x) < 60 &&
-  !cars.some(o => o.state !== 'away' && circles(o).some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r + P_R));
+const pedFree = (x, z) => Math.abs(z) < WALL_Z - 0.45 && Math.abs(x) < 60 && !cars.some(o => o.state !== 'away' && pedPush({ x, z }, o));
 const nearestMine = () => { // measured to the nearest collision circle, so the long truck works from either end
   let best = null, bd = 2.2;
-  for (const c of cars) if (c.kind === 'mine') for (const [x, z, r] of circles(c)) { const d = Math.hypot(x - player.x, z - player.z) - r; if (d < bd) { bd = d; best = c; } }
+  for (const c of cars) if (c.kind === 'mine' && !c.taken) for (const [x, z, r] of circles(c)) { const d = Math.hypot(x - player.x, z - player.z) - r; if (d < bd) { bd = d; best = c; } }
   return best;
 };
 const nearBin = () => bins.find(b => Math.hypot(b.x - player.x, b.z - player.z) < 1.8);
@@ -941,7 +1043,11 @@ function actionE() {
   if (!driving) {
     const c = nearestMine();
     if (c && binsInHand) return toast('Put the bin down first (B)');
-    if (c) { driving = c; c.speed = 0; if (c.truck) c.smokeT = 8; person.g.visible = false; SFX.door(); }
+    if (c) {
+      driving = c; c.speed = 0; c.rest = { x: c.x, z: c.z, ang: c.ang }; person.g.visible = false; SFX.door();
+      if (c.truck) c.smokeT = 8;
+      if (c.smoky) { c.cough = 1.4; c.smokeT = 0; SFX.crank(); }
+    }
     return;
   }
   const c = driving;
@@ -954,18 +1060,32 @@ function actionE() {
     const x = c.x + cs * a - sn * l, z = c.z - sn * a - cs * l;
     if (!pedFree(x, z)) continue;
     player.x = x; player.z = z; c.speed = 0; driving = null; person.g.visible = true; SFX.door();
+    if (!slots.some(s => covers(c, s))) return sendHome(c);
     const n = slots.filter(s => covers(c, s) && (!s.ai || s.ai.state === 'drive')).length;
     if (n) { floatText(n > 1 ? `${n} spots blocked!` : 'Spot secured!', c.x, c.markY + 0.4, c.z, '#ffd166'); puff(c.x, c.z, 4 + n, '#fff3c4'); SFX.block(); }
     return;
   }
   toast('No room to get out here');
 }
+// a car left on the road goes back to where it was parked (or the nearest free spot if that's been taken)
+function sendHome(c) {
+  const ok = t => carPen(c, t.x, t.z, t.ang) === 0 && !slots.some(s => covers({ ...c, ...t }, s) && s.ai && s.ai.state !== 'drive');
+  const spots = slots.flatMap(s => [s.x, s.x + SLOT_LEN / 2].map(x => ({ x, z: parkZ(c, s.side), ang: 0 })))
+    .sort((a, b) => Math.hypot(a.x - c.rest.x, a.z - c.rest.z) - Math.hypot(b.x - c.rest.x, b.z - c.rest.z));
+  const t = [c.rest, ...spots].find(t => (t === c.rest || slots.some(s => covers({ ...c, ...t }, s))) && ok(t));
+  if (!t) return toast('Your car is blocking the road!');
+  puff(c.x, c.z, 8, '#fff3c4');
+  Object.assign(c, t);
+  puff(c.x, c.z, 8, '#fff3c4');
+  floatText('Back to its spot', c.x, c.markY + 0.4, c.z, '#ffd166');
+  pushOut(player);
+}
 function actionB() {
   if (driving) return;
   const b = binsInHand;
   if (!b) {
     const n = nearBin();
-    if (!n) return toast('Walk up to a bin to grab it — or buy one (key 2)');
+    if (!n) return toast('Walk up to a bin to grab it');
     bins.splice(bins.indexOf(n), 1); n.slot = null; binsInHand = n; SFX.door();
     return;
   }
@@ -977,18 +1097,21 @@ function actionB() {
   if (s) { floatText('Spot blocked!', b.x, 2.8, b.z, '#ffd166'); SFX.block(); }
   pushOut(player);
 }
+// Erika's driveway gate: no bay in front of it, new cars are delivered there and she parks them herself
+const GARAGE_X = GATES[-1][1];
+const garageBusy = me => cars.some(o => o !== me && o.state !== 'away' && Math.abs(o.x - GARAGE_X) < 4.5 && o.z < -2.5);
 function buyCar() {
   const price = carPrice();
   if (score < price) return toast(`A car costs ${price} credits`);
-  const from = driving || player;
-  let best = null, bd = Infinity;
-  for (const s of slots) { const d = Math.hypot(s.x - from.x, s.z - from.z); if (d < bd && !s.ai && (!s.block || s.block === player)) { bd = d; best = s; } }
-  if (!best) return toast('No free spot to deliver your new car');
+  if (garageBusy()) return toast('Move the car in front of your garage first');
   score -= price; carsOwned++;
-  const c = addCar('mine', MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length], pick(['hatch', 'mini', 'mpv']));
-  Object.assign(c, { x: best.x, z: best.z, ang: parkedAng(best) });
-  puff(best.x, best.z, 10, '#fff3c4');
-  floatText('New car delivered!', best.x, 3.4, best.z, '#ffd166');
+  const m = [buildBMW, buildSpring][carsOwned - 2]?.(ENV);
+  const c = addCar('mine', MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length], pick(['hatch', 'mini', 'mpv']), m);
+  Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0 });
+  if (m?.exhaust) Object.assign(c, { exhaust: m.exhaust, smoky: true, smokeT: 0 });
+  puff(c.x, c.z, 10, '#fff3c4');
+  floatText('New car delivered!', c.x, 3.4, c.z, '#ffd166');
+  toast('Your new car is waiting in front of your garage — go and park it');
   SFX.buy();
   pushOut(player);
 }
@@ -1015,15 +1138,6 @@ function buyTruck() {
   SFX.buy();
   pushOut(player);
 }
-function buyBin() {
-  const price = binPrice();
-  if (score < price) return toast(`A bin costs ${price} credits`);
-  score -= price; binsBought++; SFX.buy();
-  const b = newBin('#2f5d3a', '#ffd23f', 1.15), w = driving || player, side = Math.sign(w.z) || -1;
-  if (driving || binsInHand) { putBin(b, sidewalkSpot(w.x, side) ?? w.x, side * BIN_Z); return toast('Your new bin is waiting on the sidewalk'); }
-  binsInHand = b; carryBin(b, player.x, player.z, person.g.rotation.y);
-  toast('Bin in hand — push it into a free spot, B to put it down');
-}
 
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyZ: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyQ: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'brake' };
 addEventListener('keydown', e => {
@@ -1035,13 +1149,11 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyB') actionB();
   if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Sound off' : 'Sound on'); }
   if (e.code === 'Digit1' || e.code === 'Numpad1') buyCar();
-  if (e.code === 'Digit2' || e.code === 'Numpad2') buyBin();
-  if (e.code === 'Digit3' || e.code === 'Numpad3') buyTruck();
+  if (e.code === 'Digit2' || e.code === 'Numpad2') buyTruck();
 });
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 $('buyCar').onclick = e => { buyCar(); e.currentTarget.blur(); };
-$('buyBin').onclick = e => { buyBin(); e.currentTarget.blur(); };
 $('buyTruck').onclick = e => { buyTruck(); e.currentTarget.blur(); };
 
 // ───────────────────────── per-frame bookkeeping
@@ -1090,12 +1202,11 @@ function hud(dt) {
   if (foreignN === 0 && !wasProtected) toast('No strangers left — credits ×3!');
   wasProtected = foreignN === 0;
   $('carPrice').textContent = carPrice();
-  $('binPrice').textContent = binPrice();
   $('buyCar').disabled = score < carPrice();
-  $('buyBin').disabled = score < binPrice();
   $('truckPrice').textContent = truckOwned ? 'Owned' : TRUCK_PRICE;
   $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
-  $('inv').textContent = binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`;
+  $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`)
+    + (boostT > 0 ? ' · 🥖 fast!' : '') + (slowT > 0 ? ' · 💨 slowed' : '');
   const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.8 ? 1 : 2;
   $('traffic').textContent = ['calm', 'busy', 'rush hour'][tl];
   $('trafficDot').style.background = ['#06d6a0', '#ffd166', '#ef476f'][tl];
@@ -1103,7 +1214,7 @@ function hud(dt) {
   const mine = !driving && nearestMine();
   if (driving) { // count what the E-snap will actually block
     const n = slots.filter(s => covers({ ...driving, ...tidy(driving) }, s)).length;
-    p = n ? `E — leave the ${driving.truck ? 'truck' : 'car'} here (${n} spot${n > 1 ? 's' : ''} blocked)` : 'E — get out';
+    p = n ? `E — leave the ${driving.truck ? 'truck' : 'car'} here (${n} spot${n > 1 ? 's' : ''} blocked)` : 'E — get out (it goes back to its spot)';
   }
   else if (binsInHand) p = Math.abs(binsInHand.z) > CURB_Z ? 'B — leave the bin on the sidewalk' : binSlot() ? 'B — block this spot with the bin' : 'Push the bin into a free spot or onto the sidewalk';
   else if (mine) p = `E — drive ${mine.truck ? 'the truck' : 'this car'}`;
@@ -1120,6 +1231,8 @@ function sync(dt) {
     c.marker.position.y = c.markY + Math.sin(elapsed * 3 + c.id) * 0.12;
   }
   person.g.position.set(player.x, 0, player.z);
+  belly = Math.max(0, belly - dt * 2.5);
+  person.g.scale.set(1.3 * (1 + 0.07 * belly * Math.sin(elapsed * 40)), 1.3, 1.3); // belly wobble after a boing
   let da = player.ang - person.g.rotation.y;
   da = Math.atan2(Math.sin(da), Math.cos(da));
   person.g.rotation.y += da * Math.min(1, dt * 12);
@@ -1143,14 +1256,14 @@ function update(dt) {
 }
 
 // ───────────────────────── neighbours on foot: Jack & the red-haired lady
-import { buildRedhead, buildJack } from './models.js';
-const SW = 5.9, BIN_Z = WALL_Z - 0.6, CROSS_XS = [-33, -0.1, 31], RED_GATE = -33, JACK_GATE = -3.6, ARMS_CARRY = 1.2; // arms forward (+rotation.z swings a hanging arm toward +x)
+import { buildRedhead, buildJack, buildWife, buildFather } from './models.js';
+const SW = 5.9, BIN_Z = WALL_Z - 0.6, CROSS_XS = [-49, -27, -11.4, 30], RED_GATE = GATES[1][0], JACK_GATE = GATES[-1][2], ARMS_CARRY = 1.2; // arms forward (+rotation.z swings a hanging arm toward +x)
 const CD = Array.from({ length: 11 }, (_, i) => markerMat('#f77f00', g => { g.font = '900 70px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(i, 64, 68); }));
 MARK.jack = markerMat('#06d6a0', g => { g.beginPath(); g.moveTo(64, 98); g.bezierCurveTo(18, 66, 32, 22, 64, 46); g.bezierCurveTo(96, 22, 110, 66, 64, 98); g.fill(); });
 const tolerance = () => rand(40, 70) * (1 - 0.45 * traffic());
-function newBin(body, lid, sc = 1) {
+function newBin(body, lid) {
   const mesh = buildBin(scene, body, lid), tag = new THREE.Sprite(MARK.mine);
-  mesh.scale.setScalar(sc); tag.position.y = 2.1; tag.scale.setScalar(0.8); tag.renderOrder = 5; tag.visible = false; mesh.add(tag);
+  tag.position.y = 2.1; tag.scale.setScalar(0.8); tag.renderOrder = 5; tag.visible = false; mesh.add(tag);
   return { mesh, tag, x: 0, z: 0, slot: null, t: 0 };
 }
 function putBin(b, x, z, slot = null) {
@@ -1206,7 +1319,7 @@ function stepWalkers(dt) {
 }
 
 // the red-haired lady: fetches the most overdue bin in a bay and wheels it back onto the sidewalk, one at a time
-const red = walker(buildRedhead), RED_HOME = -WALL_Z - 1.6;
+const red = walker(buildRedhead), RED_HOME = WALL_Z + 1.6;
 const redGoHome = () => go(red, route(red.x, red.z, RED_GATE, RED_HOME), () => { red.g.visible = false; });
 function redhead() {
   if (red.g.visible) return;
@@ -1219,6 +1332,7 @@ function redhead() {
     bins.splice(bins.indexOf(b), 1); b.slot = null; red.carry = b; // the bay is free again right now
     red.ang = red.g.rotation.y = Math.atan2(-(b.z - red.z), b.x - red.x);
     floatText(pick(['Ces poubelles !', 'Pas sur la place !', 'Oh là là…']), red.x, 2.8, red.z, '#ffb4a2');
+    if (nearPlayer(red.x, red.z, 20)) { const w = driving || player; floatText('Pta***, Sal**pe de Valérie', w.x, 3.6, w.z, '#ff8fa3'); }
     const sx = sidewalkSpot(b.x + 2, s) ?? b.x + 2;
     go(red, [[sx - 0.95, s * SW]], () => {
       red.carry = null;
@@ -1231,10 +1345,10 @@ function redhead() {
 
 // Jack: old beige hatch in his driveway; drives out (one-way, lane clear), parks across two free bays for Erika, walks home, later leaves
 const jw = walker(buildJack), J = addCar('jack', '#c9b48a', 'hatch');
-const jackHome = () => Object.assign(J, { x: JACK_GATE, z: WALL_Z + 2.6, ang: Math.PI / 2, state: 'parked', speed: 0, blocker: false, phase: 'home', wait: rand(60, 100), goal: null, leaving: false });
+const jackHome = () => Object.assign(J, { x: JACK_GATE, z: -WALL_Z - 2.6, ang: -Math.PI / 2, state: 'parked', speed: 0, blocker: false, phase: 'home', wait: rand(60, 100), goal: null, leaving: false });
 jackHome(); Object.assign(J, { name: 'Jack', wait: 22 });
 const bayFree = s => !s.ai && !s.block;
-const laneFree = (x, back, fwd) => !cars.some(o => o !== J && o.state !== 'away' && o.state !== 'parked' && Math.abs(o.z) < 2.2 && o.x > x - back && o.x < x + fwd);
+const laneFree = (x, back, fwd, me = J) => !cars.some(o => o !== me && o.state !== 'away' && o.state !== 'parked' && Math.abs(o.z) < 2.2 && o.x > x - back && o.x < x + fwd);
 function jackGoal() { // nearest reachable pair of adjacent free bays (straddle the line), else a single free bay
   let best = null, bs = Infinity;
   for (const a of slots) {
@@ -1250,17 +1364,17 @@ function jack(dt) {
     case 'home': case 'visit': case 'gone': case 'round':
       if ((J.wait -= dt) > 0) return;
       if (J.phase === 'home') {
-        J.phase = 'walk'; Object.assign(jw, { x: JACK_GATE - 1.3, z: WALL_Z + 5 });
-        go(jw, [[JACK_GATE - 1.3, WALL_Z + 3]], () => { jw.g.visible = false; J.phase = 'wait'; if (nearPlayer(J.x, J.z)) SFX.door(); });
+        J.phase = 'walk'; Object.assign(jw, { x: JACK_GATE - 1.3, z: -WALL_Z - 5 });
+        go(jw, [[JACK_GATE - 1.3, -WALL_Z - 3]], () => { jw.g.visible = false; J.phase = 'wait'; if (nearPlayer(J.x, J.z)) SFX.door(); });
       } else if (J.phase === 'visit') {
-        J.phase = 'walk'; Object.assign(jw, { x: JACK_GATE, z: WALL_Z + 1.6 });
-        go(jw, route(JACK_GATE, WALL_Z + 1.6, J.x - 0.6, J.goal.side * 5.3), () => { jw.g.visible = false; J.phase = 'unpark'; if (nearPlayer(J.x, J.z)) SFX.door(); });
+        J.phase = 'walk'; Object.assign(jw, { x: JACK_GATE, z: -WALL_Z - 1.6 });
+        go(jw, route(JACK_GATE, -WALL_Z - 1.6, J.x - 0.6, J.goal.side * 5.3), () => { jw.g.visible = false; J.phase = 'unpark'; if (nearPlayer(J.x, J.z)) SFX.door(); });
       } else if (J.phase === 'gone') { jackHome(); J.mesh.visible = true; }
       else if (enterStreet(J)) J.phase = 'drive';
       return;
     case 'wait':
       if (!laneFree(JACK_GATE, 28, 8)) return;
-      Object.assign(J, { path: [[JACK_GATE, J.z], [JACK_GATE, 2.5], [JACK_GATE + 2, 0], [JACK_GATE + 6, 0]], dur: 3.2, t: 0, state: 'out', phase: 'out' });
+      Object.assign(J, { path: [[JACK_GATE, J.z], [JACK_GATE, -2.5], [JACK_GATE + 2, 0], [JACK_GATE + 6, 0]], dur: 3.2, t: 0, state: 'out', phase: 'out' });
       return;
     case 'unpark':
       if (!laneFree(J.x, 16, 11)) return;
@@ -1277,7 +1391,7 @@ function jack(dt) {
       puff(J.x - J.len / 2, J.z, 4, '#cfcfcf'); SFX.block();
       Object.assign(jw, { x: J.x - 0.6, z: g.side * 5.3 });
       floatText('Jack : Je te garde la place, Erika !', J.x, 3.4, J.z, '#b8f28a');
-      go(jw, route(jw.x, jw.z, JACK_GATE, WALL_Z + 1.6), () => { jw.g.visible = false; J.phase = 'visit'; J.wait = rand(60, 90); });
+      go(jw, route(jw.x, jw.z, JACK_GATE, -WALL_Z - 1.6), () => { jw.g.visible = false; J.phase = 'visit'; J.wait = rand(60, 90); });
       return;
     }
     case 'drive': {
@@ -1299,13 +1413,103 @@ function jack(dt) {
   }
 }
 
+// Erika's wife: now and then borrows one of his cars (never the truck) for a drive, then leaves it in front of the garage
+const ww = walker(buildWife), W = { car: null, phase: 'home', wait: rand(50, 80), back: false }, WIFE_HOME = -WALL_Z - 1.6;
+function wife(dt) {
+  const c = W.car;
+  switch (W.phase) {
+    case 'home': case 'away': {
+      if ((W.wait -= dt) > 0) return;
+      if (W.phase === 'away') { W.back = true; if (enterStreet(c)) W.phase = 'drive'; else W.wait = 1; return; }
+      const free = cars.filter(o => o.kind === 'mine' && !o.truck && o !== driving);
+      if (!free.length) { W.wait = 10; return; }
+      const k = W.car = pick(free); k.taken = true;
+      Object.assign(W, { phase: 'walk', back: false }); Object.assign(ww, { x: GARAGE_X, z: WIFE_HOME });
+      go(ww, route(GARAGE_X, WIFE_HOME, k.x - 0.6, Math.sign(k.z) * 5.3), () => {
+        ww.g.visible = false; W.phase = 'unpark';
+        floatText('Je prends la voiture, chéri !', k.x, 3.4, k.z, '#f1c0e8'); if (nearPlayer(k.x, k.z)) SFX.door();
+      });
+      return;
+    }
+    case 'unpark':
+      if (!laneFree(c.x, 16, 11, c)) return;
+      startLeave(c); c.blocker = false; W.phase = 'out';
+      return;
+    case 'out':
+      if (followPath(c, dt, t => t * t)) { c.state = 'drive'; W.phase = 'drive'; }
+      return;
+    case 'park':
+      if (!followPath(c, dt, t => 1 - (1 - t) ** 2)) return;
+      Object.assign(c, { state: 'mine', x: GARAGE_X, z: parkZ(c, -1), ang: 0, speed: 0, blocker: true, taken: false });
+      puff(c.x - c.len / 2, c.z, 4, '#cfcfcf'); floatText('Je suis rentrée !', c.x, 3.4, c.z, '#f1c0e8');
+      W.car = null; W.phase = 'walk'; Object.assign(ww, { x: c.x - 0.6, z: -5.3 });
+      go(ww, route(ww.x, ww.z, GARAGE_X, WIFE_HOME), () => { ww.g.visible = false; W.phase = 'home'; W.wait = rand(60, 100); });
+      return;
+    case 'drive': {
+      const [gap] = obstacleAhead(c), rem = W.back && !garageBusy(c) ? GARAGE_X - c.x : -1;
+      let v = gap < 0 ? 0 : Math.min(c.cruise, gap * 1.6);
+      if (rem > 3) {
+        v = Math.min(v, 2.5 + rem * 0.35);
+        if (rem <= 9 && gap > 1) {
+          const z = parkZ(c, -1);
+          Object.assign(c, { path: [[c.x, c.z], [c.x + 3, 0], [GARAGE_X - 3, z], [GARAGE_X, z]], dur: clamp(2 * rem / Math.max(c.speed, 2), 2, 4.5), t: 0, state: 'park' });
+          W.phase = 'park';
+          return;
+        }
+      }
+      c.speed += clamp(v - c.speed, -14 * dt, 5 * dt);
+      c.x += c.speed * dt; c.z -= c.z * Math.min(1, dt * 3); c.ang = 0;
+      if (c.x > END_X) { c.state = 'away'; c.mesh.visible = false; W.phase = 'away'; W.wait = W.back ? 4 : rand(25, 50); } // garage blocked: another lap
+    }
+  }
+}
+
+// little events: a baguette on the sidewalk (speed boost), Erika's father coming out to fart next to her (slowdown)
+const baguette = new THREE.Group(), BAG = { t: rand(20, 35), life: 0 };
+mesh(baguette, new THREE.CapsuleGeometry(0.1, 0.8, 4, 8), '#d99a4e').rotation.z = Math.PI / 2;
+for (const x of [-0.26, 0, 0.26]) box(baguette, 0.08, 0.02, 0.15, '#f3dfb3', x, 0.09, 0).rotation.y = 0.6;
+baguette.scale.setScalar(1.4); baguette.visible = false; scene.add(baguette);
+const pa = walker(buildFather), PA = { t: rand(50, 80), phase: 'home', give: 0, reroute: 0 }, PA_HOME = [GARAGE_X - 1.2, WIFE_HOME];
+const paGoHome = () => { PA.phase = 'back'; go(pa, route(pa.x, pa.z, ...PA_HOME), () => { pa.g.visible = false; PA.phase = 'home'; PA.t = rand(60, 100); }); };
+function events(dt) {
+  boostT -= dt; slowT -= dt; chatT -= dt;
+  const b = baguette.position;
+  if (baguette.visible) {
+    baguette.rotation.y += dt * 2; b.y = 0.6 + Math.sin(elapsed * 4) * 0.12;
+    if (!driving && Math.hypot(player.x - b.x, player.z - b.z) < 1.2) {
+      baguette.visible = false; boostT = 8; BAG.t = rand(25, 45); SFX.buy();
+      floatText('Baguette ! Erika file !', player.x, 3.4, player.z, '#ffd166');
+    } else if ((BAG.life -= dt) <= 0) { baguette.visible = false; BAG.t = rand(25, 45); }
+  } else if ((BAG.t -= dt) <= 0) {
+    const s = pick([-1, 1]), x = sidewalkSpot(rand(-45, 45), s);
+    if (x === null) BAG.t = 2;
+    else { b.set(x, 0.6, s * (CURB_Z + WALL_Z) / 2); baguette.visible = true; BAG.life = 30; puff(b.x, b.z, 4, '#fff3c4'); }
+  }
+  if (PA.phase === 'home') {
+    if ((PA.t -= dt) > 0 || driving) return;
+    [pa.x, pa.z] = PA_HOME; Object.assign(PA, { phase: 'chase', give: 45, reroute: 0 });
+  } else if (PA.phase === 'chase') {
+    if ((PA.give -= dt) <= 0 || driving) { floatText('Bon…', pa.x, 2.8, pa.z, '#c7e8a0'); return paGoHome(); }
+    if (Math.hypot(player.x - pa.x, player.z - pa.z) < 1.3) {
+      slowT = 6; SFX.fart(); puff(pa.x, pa.z, 12, '#9ccf5a');
+      floatText('Prrrrout !', pa.x, 2.8, pa.z, '#9ccf5a'); floatText('Oh non, Papa !', player.x, 3.8, player.z, '#ffd166');
+      return paGoHome();
+    }
+    const close = Math.hypot(player.x - pa.x, player.z - pa.z) < 10;
+    if ((PA.reroute -= dt) <= 0 && (close || !pa.pts.length)) { // straight at her when close, else a full sidewalk route (re-planning mid-crossing would turn him back)
+      PA.reroute = 0.8;
+      go(pa, close ? [[player.x, player.z]] : route(pa.x, pa.z, player.x, player.z));
+    }
+  }
+}
+
 function neighbours(dt) {
   for (const b of bins) {
     b.tag.visible = !!b.slot;
     if (b.slot) { b.t -= dt; b.tag.material = b.t <= 0 ? MARK.foreign : b.t <= 10 ? CD[Math.ceil(b.t)] : MARK.mine; }
   }
   if (binsInHand) carryBin(binsInHand, player.x, player.z, person.g.rotation.y);
-  redhead(); jack(dt); stepWalkers(dt);
+  redhead(); jack(dt); wife(dt); events(dt); stepWalkers(dt);
 }
 // self-check: grab a sidewalk bin, block a bay, let the lady take it back, then run one Jack visit. Returns 'ok' or throws.
 function selfTestNeighbours() {
@@ -1333,11 +1537,47 @@ function selfTestNeighbours() {
   ok(until(90, () => J.leaving && !J.mesh.visible), 'jack drives off');
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { jack: J, jw, red, walkers, held: () => binsInHand, selfTestNeighbours })); // after __game exists
+// self-check: the wife takes a car (its bay frees up), drives off, comes back and leaves it in front of the garage. Returns 'ok' or throws.
+function selfTestWife() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestWife: ' + m); };
+  const until = (sec, f) => { for (let t = 0; t < sec && !f(); t += 0.5) window.__game.step(0.5); return f(); };
+  if (driving) { driving.speed = 0; actionE(); }
+  ok(W.phase === 'home', 'wife at home'); W.wait = 0;
+  ok(until(90, () => W.phase === 'away'), 'wife drives off');
+  const c = W.car;
+  ok(!slots.some(s => s.block === c) && c.taken, 'her car holds no bay and is not drivable');
+  W.wait = 0;
+  ok(until(90, () => !c.taken), 'wife comes back');
+  ok(c.x === GARAGE_X && c.state === 'mine' && c.blocker, 'car left in front of the garage');
+  return 'ok';
+}
+// self-check: no walking through the middle of an SUV, baguette boost, father's fart, a driver stopping to chat, the neighbour fine. Returns 'ok' or throws.
+function selfTestEvents() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestEvents: ' + m); };
+  const until = (sec, f) => { for (let t = 0; t < sec && !f(); t += 0.1) window.__game.step(0.1); return f(); };
+  if (driving) { driving.speed = 0; actionE(); }
+  const v = addCar('foreign', '#888', 'suv'), q = { x: 40, z: 0.6 };
+  Object.assign(v, { x: 40, z: 0, ang: 0 });
+  ok(pedPush(q, v) && Math.abs(q.z - (v.r + P_R)) < 1e-9, 'no gap in the middle of an SUV');
+  scene.remove(v.mesh); cars.splice(cars.indexOf(v), 1);
+  BAG.t = 0; window.__game.step(0.1); ok(baguette.visible, 'baguette appears');
+  Object.assign(player, { x: baguette.position.x, z: baguette.position.z }); window.__game.step(0.1);
+  ok(boostT > 0 && !baguette.visible, 'baguette picked up: speed boost');
+  PA.t = 0; ok(until(60, () => slowT > 0), 'father farts next to Erika: slowdown');
+  Object.assign(player, { x: -40, z: -5.3 }); chatT = 0;
+  ok(until(120, () => cars.some(c => c.chat > 0)), 'a driver stops to chat');
+  const n = cars.find(c => c.kind === 'neighbour');
+  if (n.slot) n.slot.ai = null;
+  Object.assign(n, { state: 'drive', x: END_X - 0.01, z: 0, speed: 5, wantsSlot: true, slot: null, chat: 0 }); n.mesh.visible = true;
+  score = 1000; window.__game.step(0.1);
+  ok(score < 600 && n.state === 'away', 'neighbour who found no spot costs 500');
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { jack: J, jw, red, W, PA, pa, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
-  const start = slots.find(s => s.side === -1 && s.x === -3.8);
+  const start = slots.find(s => s.side === -1 && s.x === -30.2);
   const mine = addCar('mine', MINE_COLORS[0], 'hatch');
   Object.assign(mine, { x: start.x, z: start.z, ang: parkedAng(start) });
   player.x = start.x + 1.2; player.z = -6.2;
@@ -1347,7 +1587,7 @@ function setup() {
     const c = addCar('neighbour', n.color, n.type);
     Object.assign(c, { name: n.name, home: rand(-25, 25) });
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
-    else { c.state = 'away'; c.timer = rand(8, 40); c.mesh.visible = false; }
+    else { c.state = 'away'; c.timer = rand(30, 90); c.mesh.visible = false; }
   });
   for (const s of [1, -1]) for (const g of GATES[s]) for (const dx of Math.random() < 0.25 ? [2.4, 3.5] : [2.4])
     putBin(newBin('#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])), g + dx, s * BIN_Z);
@@ -1377,15 +1617,51 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 // debug/test hook: __game.step(seconds) runs the simulation without rendering
-window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, buyBin, start: () => $('start').click(), get elapsed() { return elapsed; }, set elapsed(v) { elapsed = v; },
+window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, start: () => $('start').click(), get elapsed() { return elapsed; }, set elapsed(v) { elapsed = v; },
   get score() { return score; }, set score(v) { score = v; }, get driving() { return driving; }, get rate() { return rate; }, get binsInHand() { return binsInHand; },
-  zoom(v) { viewH = v; resize(); },
+  zoom(v) { viewH = v; resize(); }, cam: { CAM_OFF, camTarget }, // screenshots: pause (P), then aim/tilt via CAM_OFF + player.x/z
   step(sec, dt = 1 / 30) { for (let t = 0; t < sec; t += dt) { update(dt); sync(dt); updateFx(dt); } } };
 // vehicles: selfTest() checks the straddle rule (a car on a bay line blocks 2, the truck 2 or 3) and the E-snap targets
 Object.assign(window.__game, { buyTruck, circles, smoke, selfTest() {
-  const s = slots.find(q => q.side === -1 && q.x === -20), n = (dx, len = 4, dz = 0) => slots.filter(q => covers({ x: s.x + dx, z: s.z + dz, len }, q)).length;
+  const s = slots.find(q => q.side === -1 && q.x === -41), n = (dx, len = 4, dz = 0) => slots.filter(q => covers({ x: s.x + dx, z: s.z + dz, len }, q)).length;
   const got = [n(0), n(SLOT_LEN / 2), n(1.5), n(2), n(0, 4, -s.z), n(SLOT_LEN / 2, 9.6), n(SLOT_LEN, 9.6), n(SLOT_LEN + 1.5, 9.6)].join();
   if (got !== '1,2,1,2,0,2,3,2') throw new Error(`straddle rule: ${got}`);
-  if (Math.abs(snapX(-1, -18.1) + 17.3) > 1e-9 || snapX(-1, -19) !== -20) throw new Error('E-snap targets');
+  if (Math.abs(snapX(-1, -39.1) + 38.3) > 1e-9 || snapX(-1, -40) !== -41) throw new Error('E-snap targets');
+  return 'ok';
+} });
+// Erika's rules: BMW coughs at start-up, a car left on the road goes home, road hogs get shoved aside,
+// the truck evicts parked cars, a car pulling in bounces off her belly. Returns 'ok' or throws.
+Object.assign(window.__game, { selfTestRules() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestRules: ' + m); };
+  const until = (sec, f) => { for (let t = 0; t < sec && !f(); t += 0.1) window.__game.step(0.1); return f(); };
+  const getIn = c => { Object.assign(player, { x: c.x, z: c.z - Math.sign(c.z) * (c.r + 0.5) }); actionE(); ok(driving === c, 'get in'); };
+  if (driving) { driving.speed = 0; actionE(); }
+  score = 1e5;
+  W.wait = PA.t = chatT = BAG.t = 1e9; // no random events in the way
+  buyCar(); const bmw = cars.at(-1);
+  ok(bmw.x === GARAGE_X && !slots.some(s => covers(bmw, s)), 'new car waits in front of the garage');
+  buyCar(); ok(cars.at(-1) === bmw, 'no second delivery while the garage spot is taken');
+  getIn(bmw); window.__game.step(0.5);
+  ok(smoke.some(s => s.m.visible), 'BMW smokes at start-up');
+  const home = { x: bmw.x, z: bmw.z };
+  bmw.z = 0.3; actionE();
+  ok(!driving && Math.hypot(bmw.x - home.x, bmw.z - home.z) < 1e-6, 'car left on the road goes home');
+  bmw.x = -60; buyCar(); const spring = cars.at(-1);
+  ok(bmw.smoky && spring.len === 3.73 && !spring.exhaust, 'BMW then Dacia Spring');
+  spring.x = -66;
+  Object.assign(player, { x: -20, z: 0 });
+  ok(until(150, () => cars.some(c => c.stuckT > PATIENCE)), 'traffic waits behind Erika');
+  ok(until(3, () => Math.abs(player.z) > 1.9), 'Erika shoved aside');
+  for (const c of cars.filter(c => c.kind === 'foreign')) leaveStreet(c); // clear the street
+  buyTruck(); const tr = cars.at(-1), f = addCar('foreign', '#888', 'hatch');
+  const s = slots.find(s => !s.ai && !s.block && carPen(tr, s.x - (tr.len + f.len) / 2 - 0.1, parkZ(tr, s.side), 0) === 0);
+  placeParked(f, s, 999); Object.assign(tr, { x: s.x - (tr.len + f.len) / 2 - 0.1, z: parkZ(tr, s.side), ang: 0 });
+  getIn(tr); keys.up = true;
+  ok(until(6, () => f.state === 'leave'), 'truck shoves a parked car out'); keys.up = false;
+  tr.speed = 0; actionE(); ok(!driving, 'out of the truck');
+  const p = addCar('foreign', '#888', 'hatch'), q = slots.find(s => !s.ai && !s.block && Math.abs(s.x) < 40);
+  Object.assign(p, { x: q.x - 8, z: 0, speed: 4, slot: q, state: 'drive' }); q.ai = p; startPark(p);
+  Object.assign(player, { x: bez(p.path, 0.3, 0), z: bez(p.path, 0.3, 1) });
+  ok(until(5, () => p.state === 'drive') && p.slot !== q && belly > 0, 'parking car bounces off her belly'); // gives up the bay (may reserve another)
   return 'ok';
 } });

@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Parking Guard — Rue d'Aguesseau</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="vendor/fonts/fredoka.css" rel="stylesheet">
 <style>
   :root { --glass: rgba(18, 24, 34, .62); --line: rgba(255,255,255,.14); --txt: #f6f3ec; --accent: #ffd166; --red: #ef476f; --teal: #2ec4b6; --mine: #f4a261; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #bcd3e6; font-family: 'Fredoka', system-ui, sans-serif; color: var(--txt); user-select: none; }
@@ -50,8 +49,8 @@
 </style>
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  "three": "./vendor/three/build/three.module.js",
+  "three/addons/": "./vendor/three/examples/jsm/"
 } }
 </script>
 </head>
@@ -67,8 +66,7 @@
 </div>
 <div id="shop" class="panel">
   <button id="buyCar"><span><kbd>1</kbd>🚗 Car</span><span class="price" id="carPrice"></span></button>
-  <button id="buyBin"><span><kbd>2</kbd>🗑️ Bin</span><span class="price" id="binPrice"></span></button>
-  <button id="buyTruck"><span><kbd>3</kbd>🚚 Truck</span><span class="price" id="truckPrice"></span></button>
+  <button id="buyTruck"><span><kbd>2</kbd>🚚 Truck</span><span class="price" id="truckPrice"></span></button>
   <div id="inv"></div>
 </div>
 <div id="help" class="panel">
@@ -83,9 +81,10 @@
   <div class="card">
     <h1>Parking Guard</h1>
     <h2>Rue d'Aguesseau</h2>
-    <p>You are <b>Erika</b>, and strangers keep sneaking into <i>your</i> street to park. Drive your cars into free spots and leave them there, or grab a wheelie bin from the sidewalk (<b>B</b>) and push it into a spot. Buy more cars and bins to hold every spot.</p>
-    <p>Bins in a spot are only tolerated for a while: when the countdown runs out, the <b>red-haired neighbour</b> comes out and wheels them back onto the sidewalk. Old <b>Jack</b> from across the street is on your side: now and then he parks his beige car across two spots to keep them for you.</p>
-    <p>You earn credits all the time, and <b>three times faster</b> when no stranger is parked. Every stranger who manages to park costs you <b>10 credits</b>. Neighbours come and go as they please and never cost you anything.</p>
+    <p>You are <b>Erika</b>, and strangers keep sneaking into <i>your</i> street to park. Drive your cars into free spots and leave them there, or grab a wheelie bin from the sidewalk (<b>B</b>) and push it into a spot. Buy more cars to hold every spot: they are delivered in front of your garage, and it's up to you to drive them into a spot.</p>
+    <p>Bins in a spot are only tolerated for a while: when the countdown runs out, <b>Valérie</b>, the red-haired neighbour, comes out and wheels them back onto the sidewalk. Old <b>Jack</b> from across the street is on your side: now and then he parks his beige car across two spots to keep them for you. Your wife, on the other hand, regularly borrows one of your cars for a drive and leaves it back in front of the garage.</p>
+    <p>You earn credits all the time, and <b>three times faster</b> when no stranger is parked. Every stranger who manages to park costs you <b>10 credits</b>. Neighbours come and go as they please, but if one of them drives through the whole street without finding a spot, it costs you <b>500 credits</b>.</p>
+    <p>Grab the <b>baguettes</b> that sometimes show up on the sidewalk: they make you walk faster for a while. Watch out for your <b>father</b>: when he catches you, he farts right next to you and slows you down.</p>
     <div class="legend"><span><span class="dot" style="background:var(--mine)"></span>yours</span><span><span class="dot" style="background:var(--teal)"></span>neighbour</span><span><span class="dot" style="background:var(--red)"></span>stranger</span><span><span class="dot" style="background:#ffb703"></span>stranger incoming</span></div>
     <button id="start">Play</button>
     <div id="best"></div>
