@@ -981,15 +981,31 @@ function drive(c, dt) {
   c.speed = clamp(c.speed, -0.4 * c.top, c.top);
   const steer = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
   const ang = c.ang + steer * clamp(c.speed, -4, 4) * c.turn * dt, k = c.pivot, d = c.speed * dt; // turns about a point k m behind the centre (rear axle)
-  const x = c.x - Math.cos(c.ang) * k + Math.cos(ang) * (k + d), z = c.z + Math.sin(c.ang) * k - Math.sin(ang) * (k + d);
-  const before = carPen(c, c.x, c.z, c.ang), after = carPen(c, x, z, ang);
-  if (after > before + 1e-4 && c.truck && truckShove(c, x, z, ang)) Object.assign(c, { x, z, ang });
-  else if (after <= before + 1e-4) Object.assign(c, { x, z, ang });
-  else {
-    if (Math.abs(c.speed) > 3) { puff(x, z, 3, '#ddd'); floatText('Bump!', c.x, 2.8, c.z, '#ffd166'); }
-    c.speed *= -0.2;
+  const pose = (a, d) => ({ x: c.x - Math.cos(c.ang) * k + Math.cos(a) * (k + d), z: c.z + Math.sin(c.ang) * k - Math.sin(a) * (k + d), ang: a });
+  const m = pose(ang, d), before = carPen(c, c.x, c.z, c.ang), fits = p => carPen(c, p.x, p.z, p.ang) <= before + 1e-4;
+  if (fits(m) || c.truck && truckShove(c, m.x, m.z, m.ang)) Object.assign(c, m);
+  else { // blocked: slide out of whatever it hit (full move, pure turn, straight on, stay put pushed out); the speed lost is the impact
+    const p = [m, pose(ang, 0), pose(c.ang, d), pose(c.ang, 0)].map(p => unstick(c, p)).find(fits) || pose(c.ang, 0);
+    const v = ((p.x - c.x) * Math.cos(p.ang) - (p.z - c.z) * Math.sin(p.ang)) / dt * Math.sign(c.speed);
+    if (Math.abs(c.speed) - Math.max(0, v) > 3) { puff(m.x, m.z, 3, '#ddd'); floatText('Bump!', c.x, 2.8, c.z, '#ffd166'); c.speed *= -0.2; }
+    else c.speed = Math.sign(c.speed) * Math.min(Math.abs(c.speed), Math.max(v, 1.5)); // keeps ~1.5 m/s of wheel speed so it can still steer off
+    Object.assign(c, p);
   }
   if (c.exhaust) exhaustFx(c, dt);
+}
+// pose p pushed (translation only, a few relaxation passes) out of the curb, the street ends, other cars and bins
+function unstick(c, { x, z, ang }) {
+  const cs = Math.cos(ang), sn = Math.sin(ang), obs = [...cars.filter(o => o !== c && o.state !== 'away').flatMap(o => circles(o)), ...bins.map(b => [b.x, b.z, BIN_R])];
+  for (let i = 0; i < 4; i++) for (const o of c.circ) {
+    const ax = x + cs * o, az = z - sn * o;
+    z -= Math.sign(az) * Math.max(0, Math.abs(az) + c.r - CURB_Z);
+    x -= Math.sign(ax) * Math.max(0, Math.abs(ax) - 62);
+    for (const [bx, bz, br] of obs) {
+      const dx = x + cs * o - bx, dz = z - sn * o - bz, dd = Math.hypot(dx, dz), e = c.r + br - dd;
+      if (e > 0 && dd > 1e-6) { x += dx / dd * e; z += dz / dd * e; }
+    }
+  }
+  return { x, z, ang };
 }
 // the truck shoves parked strangers/neighbours along with it; after ~1 m they give up the bay and drive off
 function truckShove(c, x, z, ang) {
@@ -1759,5 +1775,44 @@ Object.assign(window.__game, { selfTestRules() {
   Object.assign(p, { x: q.x - 8, z: 0, speed: 4, slot: q, state: 'drive' }); q.ai = p; startPark(p);
   Object.assign(player, { x: bez(p.path, 0.3, 0), z: bez(p.path, 0.3, 1) });
   ok(until(5, () => p.state === 'drive') && p.slot !== q && belly > 0, 'parking car bounces off her belly'); // gives up the bay (may reserve another)
+  return 'ok';
+} });
+// driving: a car (and the truck) flush against the curb or with a corner in it can still drive, reverse and turn away;
+// it slides along the curb, stops against a parked car without overlapping it, and bumps back when hitting it fast
+Object.assign(window.__game, { selfTestDriving() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestDriving: ' + m); };
+  W.wait = PA.t = chatT = BAG.t = spawnT = J.wait = 1e9; score = 1e5; // no traffic, no events
+  for (const c of cars.filter(c => c.kind !== 'mine')) { leaveStreet(c); c.timer = 1e9; }
+  buyTruck();
+  const car = cars.find(c => c.kind === 'mine' && !c.truck), tr = cars.find(c => c.truck), K = ['up', 'down', 'left', 'right'];
+  const clearAt = (v, x) => ![...bins, ...cars.filter(o => o !== v && o.state !== 'away')].some(o => Math.abs(o.z) < CURB_Z + 1 && Math.abs(o.x - x) < 14);
+  const run = (v, pose, on, sec = 2) => { // drives v from pose with keys `on` held; returns how far it got
+    Object.assign(v, pose, { speed: pose.speed || 0 }); driving = v;
+    ok(carPen(v, v.x, v.z, v.ang) < 1e-3, 'start pose clear');
+    for (const k of K) keys[k] = on.includes(k);
+    const x0 = v.x, z0 = v.z, a0 = v.ang;
+    let worst = 0;
+    for (let t = 0; t < sec; t += 0.1) { window.__game.step(0.1); worst = Math.max(worst, carPen(v, v.x, v.z, v.ang)); }
+    for (const k of K) keys[k] = false;
+    driving = null;
+    return { moved: Math.hypot(v.x - x0, v.z - z0), off: Math.sign(z0) * (z0 - v.z), turned: Math.abs(v.ang - a0), worst };
+  };
+  for (const v of [car, tr]) for (const s of [1, -1]) {
+    const X = [-40, -30, -20, -10, 0, 10, 20, 30, 40].find(x => clearAt(v, x)), e = v.circ[0], a = 0.35, L = s > 0 ? 'left' : 'right', R = s > 0 ? 'right' : 'left';
+    ok(X !== undefined, 'a clear stretch of street');
+    const n = v.truck ? 'truck ' + s : 'car ' + s, flush = { x: X, z: s * (CURB_Z - v.r - 1e-3), ang: 0 };
+    const rear = { x: X, z: s * (CURB_Z - v.r - 1e-3 - Math.sin(a) * e), ang: s * a }, nose = { ...rear, ang: -s * a }; // rear / front corner on the curb
+    for (const [p, on, what, f] of [[flush, ['up', L], 'pulls out from flush', r => r.off > 0.5], [flush, ['down', L], 'reverses out from flush', r => r.off > 0.3],
+      [rear, ['down'], 'reverses with its rear on the curb', r => r.moved > 1], [rear, ['down', R], 'reverses and turns with its rear on the curb', r => r.moved > 1 && r.turned > 0.1],
+      [rear, ['up', L], 'pulls out with its rear on the curb', r => r.off > 0.5], [nose, ['up'], 'slides along the curb nose first', r => r.moved > 2],
+      [nose, ['down', L], 'backs off the curb', r => r.off > 0.3]]) {
+      const r = run(v, p, on);
+      ok(f(r) && r.worst < 0.02, `${n}: ${what} ${JSON.stringify(r)}`);
+    }
+  }
+  const f = addCar('foreign', '#888', 'hatch'), q = slots.find(q => q.side === 1 && clearAt(car, q.x - 4));
+  placeParked(f, q, 999);
+  const r = run(car, { x: q.x - (car.len + f.len) / 2 - 3, z: q.z, ang: 0, speed: 10 }, [], 1);
+  ok(r.worst < 0.02 && car.speed <= 0.5 && car.x < f.x - (car.len + f.len) / 2 + 0.2, `stops against a parked car ${JSON.stringify(r)}`);
   return 'ok';
 } });
