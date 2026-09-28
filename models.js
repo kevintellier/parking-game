@@ -426,6 +426,98 @@ export function buildTruck(env) {
   return { g, body, len, w, exhaust: ex };
 }
 
+// ───────────── Ferrari F430 (2004-09), Erika's dream car: lofted superellipse sections, vertex-painted (paint / black / glass / lamps)
+// 1-D Catmull-Rom through [x, y] knots (x ascending)
+const knots = tab => x => {
+  let i = 0; while (i < tab.length - 2 && x > tab[i + 1][0]) i++;
+  const [x1, a] = tab[i], [x2, b] = tab[i + 1], p = tab[i - 1]?.[1] ?? a, q = tab[i + 2]?.[1] ?? b, u = Math.min(1, Math.max(0, (x - x1) / (x2 - x1)));
+  return a + 0.5 * u * (b - p + u * (2 * p - 5 * a + 4 * b - q + u * (3 * (a - b) + q - p)));
+};
+// closed tube along x in [x0, x1]: sec(x) → [yb, yt, hw, n] superellipse section; fix(v, x, c, s, hw) may move a vertex; paint(v, colour) sets its colour
+const loft = (k, x0, x1, nu, nv, sec, fix, paint) => once('loft' + k, () => {
+  const pos = [], col = [], idx = [], v = new THREE.Vector3(), cl = new THREE.Color(), sg = (a, e) => Math.sign(a) * Math.abs(a) ** e;
+  const rows = [0, 0.25, 0.5, 0.75].map(f => [x0, f]); // flat end caps: shrinking rings at x0 and x1
+  for (let i = 0; i <= nu; i++) { const u = i / nu; rows.push([x0 + (x1 - x0) * (u + (1 - Math.cos(PI * u)) / 2) / 2, 1]); }
+  rows.push(...[0.75, 0.5, 0.25, 0].map(f => [x1, f]));
+  rows.forEach(([x, f], i) => {
+    const [yb, yt, hw, n] = sec(x);
+    for (let j = 0; j < nv; j++) {
+      const a = -PI / 2 + 2 * PI * j / nv, c = Math.cos(a), s = Math.sin(a);
+      v.set(x, (yb + yt) / 2 + f * (yt - yb) / 2 * sg(s, 2 / n), f * hw * sg(c, 2 / n)); fix?.(v, x, c, s, hw);
+      pos.push(v.x, v.y, v.z); paint(v, cl); col.push(cl.r, cl.g, cl.b);
+      if (i < rows.length - 1) { const a = i * nv + j, b = a + nv, c = i * nv + (j + 1) % nv, d = c + nv; idx.push(a, b, c, b, d, c); }
+    }
+  });
+  const geo = new THREE.BufferGeometry(); geo.setIndex(idx);
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals(); return geo;
+});
+
+export function buildF430(env) {
+  const g = new THREE.Group(), body = new THREE.Group(), len = 4.51, w = 1.92, L = len / 2, E = { envMap: env }; g.add(body);
+  const RED = '#c80b0b', p = M(RED, { roughness: 0.16, metalness: 0.55, ...E }), black = M('#0c0c0e', { roughness: 0.55 });
+  const vp = M('#ffffff', { vertexColors: true, roughness: 0.14, metalness: 0.55, ...E }), C = c => new THREE.Color(c), cRed = C(RED), cBlack = C('#0b0b0c'), cGlass = C('#10161c'), cLamp = C('#e4eaee');
+  const chrome = M('#d5dade', { roughness: 0.15, metalness: 1, ...E }), red = M('#8e0508', { emissive: '#ff1a10', emissiveIntensity: 0.9 });
+  const st = (d, e = 0.04) => Math.min(1, Math.max(0, d / e + 0.5)); // soft step: 0 → 1 as d crosses 0 (decal edges)
+  const axles = [[1.3, 0.32, 0.24], [-1.3, 0.34, 0.29]]; // x, wheel radius, tyre width (fat rears)
+  // lower body: wedge nose, fenders standing above the bonnet, scooped side intakes, wheel arches cut out
+  const bT = knots([[-L, 0.8], [-2.2, 0.92], [-2.0, 0.95], [-1.3, 0.96], [-0.6, 0.9], [0.2, 0.86], [0.8, 0.83], [1.3, 0.8], [1.8, 0.7], [2.1, 0.58], [L, 0.44]]);
+  const bB = knots([[-L, 0.3], [-2.1, 0.17], [-1.8, 0.13], [1.9, 0.12], [2.15, 0.15], [L, 0.26]]);
+  const bW = knots([[-L, 0.9], [-1.9, 0.95], [-1.3, 0.96], [-0.7, 0.9], [0, 0.86], [0.7, 0.9], [1.3, 0.95], [1.9, 0.9], [L, 0.8]]);
+  const cap = (x, c, h, q) => Math.max(0, 1 - Math.abs((x - c) / h) ** q) ** (1 / q);
+  const sec = x => [bB(x), bT(x), bW(x) * cap(x, 0, L + 0.01, x > 0 ? 5 : 12), x > 0 ? 3.8 : 3.8 + 2 * bump(x, -L, 0.5)];
+  // x of the body surface at (y, z), scanning in from the nose (dir 1) or the tail (dir -1)
+  const surfX = (y, z, dir) => { for (let x = dir * L; x * dir > 0; x -= dir * 0.005) { const [yb, yt, hw, n] = sec(x), f = Math.abs((2 * y - yb - yt) / (yt - yb)); if (f < 1 && hw * (1 - f ** n) ** (1 / n) >= Math.abs(z)) return x; } };
+  const dip = x => 0.08 * bump(x, 1.6, 0.6), intake = x => Math.min(1, Math.max(0, (x + 1.05) / 0.5)) * Math.min(1, Math.max(0, (-0.4 - x) / 0.06));
+  add(body, loft('f430body', -L, L, 220, 110, sec, (v, x, c, s, hw) => {
+    if (s > 0) v.y -= dip(x) * (1 - (v.z / (hw || 1)) ** 2);
+    v.z -= Math.sign(v.z) * 0.1 * bump(v.y, 0.56, 0.13) * intake(x) * Math.abs(c);
+    for (const [ax, R] of axles) { const dx = x - ax, Ra = R + 0.04; if (Math.abs(dx) < Ra) v.y = Math.max(v.y, R + Math.sqrt(Ra * Ra - dx * dx)); }
+  }, ({ x, y, z }, cl) => {
+    const az = Math.abs(z), hx = 0.94 * (x - 1.72) + 0.34 * (az - 0.7), hz = 0.34 * (x - 1.72) - 0.94 * (az - 0.7);
+    const dark = Math.max(
+      st(x - 1.9) * st(1 - ((az - 0.56) / 0.24) ** 2 - ((y - 0.3) / 0.11) ** 2, 0.25), // two oval nose intakes
+      st(-1.95 - x) * Math.max(st(0.33 - y), st(0.42 - az, 0.02) * st(y - 0.64, 0.02) * st(0.86 - y, 0.02)), // diffuser, grille between the tail lights
+      st(az - 0.5) * st(intake(x) * bump(y, 0.56, 0.13) - 0.3, 0.12)); // side intakes behind the doors
+    cl.copy(cRed).lerp(cBlack, dark).lerp(cLamp, st(y - bT(x) + 0.2) * st(1 - (hx / 0.3) ** 2 - (hz / 0.075) ** 2, 0.3)); // teardrop headlights on the fenders
+  }), vp);
+  // greenhouse: long raked windscreen, short painted roof, sail panels either side of the glass engine cover
+  const cT = knots([[-2.02, 0.92], [-1.85, 0.98], [-1.3, 1.04], [-0.75, 1.14], [-0.3, 1.2], [0.05, 1.21], [0.4, 1.13], [0.75, 0.96], [1.0, 0.8]]);
+  const cW = knots([[-2.02, 0.7], [-1.5, 0.8], [-0.8, 0.77], [-0.3, 0.7], [0.3, 0.7], [1.0, 0.86]]);
+  add(body, loft('f430cab', -2.02, 1.0, 140, 80, x => [0.35, cT(x), cW(x) * cap(x, -0.51, 1.53, 6), 2.4], null, ({ x, y, z }, cl) =>
+    cl.copy(cRed).lerp(cGlass, st(y - 0.87) * (1 - st(-0.55 - x) * st(Math.abs(z) - 0.4)) * (1 - st(y - 1.15, 0.02) * st(x + 0.6) * st(0.08 - x)))), vp);
+  // wheels: 5 twin-spoke silver rims with the yellow centre badge, dark wells inside the arches
+  const rim = rimTex('f430Rim', (c, r) => {
+    c.fillStyle = '#1c1d20'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill();
+    c.strokeStyle = c.fillStyle = '#cfd3d7'; c.lineCap = 'round';
+    for (let i = 0; i < 5; i++) { c.rotate(2 * PI / 5); c.lineWidth = 7; c.beginPath(); c.moveTo(-4, 12); c.lineTo(-11, r - 8); c.moveTo(4, 12); c.lineTo(11, r - 8); c.stroke(); }
+    c.lineWidth = 6; c.beginPath(); c.arc(0, 0, r - 4, 0, 2 * PI); c.stroke();
+    c.beginPath(); c.arc(0, 0, 16, 0, 2 * PI); c.fill(); c.fillStyle = '#f5c400'; c.beginPath(); c.arc(0, 0, 9, 0, 2 * PI); c.fill();
+  });
+  for (const [x, R, tw] of axles) {
+    add(body, G(THREE.BoxGeometry, 2 * R + 0.08, 2 * R - 0.02, w - 0.26), black, x, R + 0.02, 0);
+    for (const k of [-1, 1]) {
+      const z = k * (w / 2 - tw / 2 - 0.02);
+      add(g, once('f430tire' + R, () => new THREE.CylinderGeometry(R, R, tw, 24).rotateX(PI / 2)), M('#141416', { roughness: 0.9 }), x, R, z);
+      add(g, once('f430rim' + R, () => new THREE.CircleGeometry(R * 0.74, 24)), rim, x, R, z + k * (tw / 2 + 0.003)).rotation.y = k > 0 ? 0 : PI;
+    }
+  }
+  const cyl = (m, r, l, x, y, z) => add(body, once('f430cyl' + r + l, () => new THREE.CylinderGeometry(r, r, l, 16).rotateZ(PI / 2)), m, x, y, z);
+  for (const k of [-1, 1]) {
+    for (const z of [0.5, 0.7]) { const x = surfX(0.78, z, -1); cyl(black, 0.085, 0.04, x, 0.78, k * z); cyl(red, 0.07, 0.06, x, 0.78, k * z); } // twin round tail lights
+    for (const z of [0.5, 0.63]) { const x = surfX(0.26, z, -1); cyl(chrome, 0.05, 0.2, x + 0.02, 0.26, k * z); cyl(black, 0.038, 0.2, x + 0.01, 0.26, k * z); } // quad exhausts
+    add(body, S(), p, 0.6, 0.97, k * 0.8, [0.07, 0.05, 0.1]); add(body, G(THREE.BoxGeometry, 0.04, 0.025, 0.14), black, 0.62, 0.94, k * 0.66); // mirrors on stalks
+  }
+  // prancing-horse shield on the bonnet
+  const badge = M('#ffffff', { roughness: 0.3, map: tex('f430Badge', 48, 64, (c, w, h) => {
+    c.fillStyle = '#f5c400'; c.beginPath(); c.moveTo(2, 2); c.lineTo(w - 2, 2); c.lineTo(w - 2, h * 0.7); c.quadraticCurveTo(w / 2, h, 2, h * 0.7); c.fill();
+    ['#139a43', '#fff', '#da251d'].forEach((col, i) => { c.fillStyle = col; c.fillRect(2 + i * (w - 4) / 3, 2, (w - 4) / 3, 8); });
+    c.fillStyle = '#111'; c.beginPath(); c.ellipse(w / 2, h * 0.5, 7, 13, 0.3, 0, 2 * PI); c.fill(); c.fillRect(w / 2 - 12, h * 0.3, 8, 5); c.fillRect(w / 2 + 3, h * 0.66, 4, 12);
+  }) });
+  add(body, once('f430BadgeGeo', () => new THREE.PlaneGeometry(0.07, 0.09).rotateX(-PI / 2).rotateY(-PI / 2).rotateZ(-0.35)), badge, 2.02, bT(2.02) - dip(2.02) + 0.01, 0);
+  return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.1, 0.26, 0.56) };
+}
+
 // ───────────── Erika's cars: BMW X3 G01 LCI (bmw.jpeg) and a grey Dacia Spring
 // Contract: { g, body, len, w, exhaust? } like buildTruck; the Spring is electric, so no exhaust.
 // shared base: lower body whose top drops toward the nose, glass cab (tumblehome) + painted roof, dark wheel wells, wheels in g
