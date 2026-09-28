@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTruck, buildBMW, buildSpring, buildPicasso } from './models.js';
+import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4 } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
@@ -684,7 +684,7 @@ const NEIGHBOURS = [ // home: x of their house (they prefer bays near it)
   // Erika's household
   { name: 'Clément', color: '#8c9196', type: 'hatch', home: -30, dented: true }, // battered grey VW Polo: breaks down every time he parks
   { name: 'Léa', color: '#b7d3e8', type: 'mini', home: -30 },
-  { name: 'Kévin', color: '#161719', type: 'hatch', home: -30 }, // black BMW Z4 E89
+  { name: 'Kévin', model: buildZ4, home: -30 }, // black BMW Z4 E89
 ];
 const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 14);
 function buildCar(color, type) {
@@ -1651,7 +1651,7 @@ function setup() {
   computeBlocks();
   const freeSlot = () => pick(slots.filter(s => !s.ai && !s.block));
   NEIGHBOURS.forEach((n, i) => {
-    const c = addCar('neighbour', n.color, n.type);
+    const c = addCar('neighbour', n.color, n.type, n.model?.(ENV));
     Object.assign(c, { name: n.name, home: n.home ?? rand(-25, 25), dented: n.dented });
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
     else { c.state = 'away'; c.timer = rand(30, 150); c.mesh.visible = false; }
