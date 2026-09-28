@@ -1622,6 +1622,7 @@ function selfTestNeighbours() {
   ok(until(90, () => !red.g.visible), 'redhead home');
   if (['home', 'gone', 'round'].includes(J.phase)) J.wait = 0;
   ok(until(150, () => J.blocker && J.state === 'parked'), 'jack parks');
+  computeBlocks(); // he may have parked on the last frame, after this frame's block pass
   ok(J.goal.bays[0].block === J, 'jack blocks a bay');
   ok(until(60, () => J.phase === 'visit'), 'jack walks home'); J.wait = 0;
   ok(until(90, () => J.leaving && !J.mesh.visible), 'jack drives off');
@@ -1750,7 +1751,7 @@ Object.assign(window.__game, { selfTestRules() {
   if (driving) { driving.speed = 0; actionE(); }
   score = 1e5;
   W.wait = PA.t = chatT = BAG.t = 1e9; // no random events in the way
-  buyCar(); const bmw = cars.at(-1);
+  buyCar(); const bmw = cars.at(-1); bmw.broken = false; // deliveries may randomly not start
   ok(bmw.x === GARAGE_X && !slots.some(s => covers(bmw, s)), 'new car waits in front of the garage');
   buyCar(); ok(cars.at(-1) === bmw, 'no second delivery while the garage spot is taken');
   getIn(bmw); window.__game.step(0.5);
