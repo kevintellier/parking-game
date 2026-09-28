@@ -2,7 +2,7 @@
 // A 1930s pavillon: cream render, steep terracotta gable facing the street (attic window with brown shutters, bargeboards
 // on brackets), tiled canopy over the door, grey lintel bands, chimney + velux on the north (+x) slope, rear wing, and a
 // white garage with a grey roof set back at the end of the driveway (x = -25).
-export const hero = { style: 'green', mail: '#2d5a43' };
+export const hero = { style: 'green', mail: '#2d5a43', wicket: -30.6 }; // green pedestrian gate in line with the door
 
 const WALL = '#ecdfc4', TRIM = '#f6f4ee', QUOIN = '#f4efe3', BAND = '#5b6168', WOOD = '#5e3424', SHUT = '#6b3f2a', PLINTH = '#c9c0b0';
 const X0 = -34.4, X1 = -26.8, ZF = -11.5, ZB = -20.5, H = 3.3; // main block footprint and eave height

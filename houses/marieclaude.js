@@ -1,7 +1,7 @@
 // Marie-Claude — reference photos: Aguesseau_1.png (far left, looking south: banana, black railing), aguesseau_haut.png
 // Two-storey white house, ridge along the street, grey tiled roof with white boxed eaves, grey shutters;
 // flat grey canopy against the front wall north of the gate; big banana tree behind the gate, a large bush to the south.
-export const hero = { style: { wall: '#eeede8', cap: '#e0ded8', pil: '#eeede8', bar: '#1e1f21', gate: '#1e1f21' }, mail: '#f1efe9' };
+export const hero = { style: { wall: '#eeede8', cap: '#e0ded8', pil: '#eeede8', bar: '#1e1f21', gate: '#1e1f21' }, mail: '#f1efe9', mailDx: 1.8 }; // letterbox on the north pillar
 
 let tiles; // grey interlocking tiles (same layout as the kit's tileTex: courses along texture v)
 export default function build(k, l) {

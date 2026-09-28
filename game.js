@@ -355,6 +355,13 @@ function plate(x, y, z, txt) { // blue enamel house-number plate
   }) }));
   m.position.set(x, y, z); m.rotation.y = z > 0 ? Math.PI : 0; S.add(m);
 }
+function wicket(x, s, st) { // pedestrian gate: a railed leaf in the gate colour over a low threshold
+  const z = s * WALL_Z, mat = M(st.gate, { metalness: 0.4, roughness: 0.5 });
+  box(S, 1.2, 0.08, 0.3, st.cap, x, 0.04, z);
+  box(S, 1.1, 0.7, 0.05, mat, x, 0.5, z);
+  for (const y of [0.9, 1.55]) box(S, 1.1, 0.06, 0.07, mat, x, y, z);
+  for (let t = x - 0.48; t < x + 0.5; t += 0.12) inst(BAR, mat, t, 1.22, z, 0.9);
+}
 function gate(g, s, lot) {
   const st = lot.st, z = s * WALL_Z, gz = z + s * 0.32, gx = g + 2.5, mat = M(st.gate, { metalness: 0.4, roughness: 0.5 });
   box(S, 3.6, 0.85, 0.05, mat, gx, 0.55, gz); // sliding leaf, pulled mostly open behind the wall
@@ -365,7 +372,7 @@ function gate(g, s, lot) {
   const dl = (s > 0 ? 13.2 : 11.5) - WALL_Z - 0.3;
   tbox(S, 3.2, 0.03, dl, COBBLE, g, 0.015, s * (WALL_Z + 0.15 + dl / 2));
   const fz = s * (WALL_Z - 0.27);
-  box(S, 0.34, 0.42, 0.1, lot.mail ?? sp(['#3a3d40', '#2d4b3b', '#6b4a33', '#f1efe9']), g - 1.8, 1.2, fz); // letterbox
+  box(S, 0.34, 0.42, 0.1, lot.mail ?? sp(['#3a3d40', '#2d4b3b', '#6b4a33', '#f1efe9']), g + (lot.mailDx ?? -1.8), 1.2, fz); // letterbox (mailDx: offset from the gate)
   box(S, 0.5, 0.64, 0.08, '#f4f3ef', g - 2.6, 0.44, s * (WALL_Z - 0.18)); // electric meter box
   box(S, 0.36, 0.05, 0.09, '#b9b6af', g - 2.6, 0.62, s * (WALL_Z - 0.18));
   if (lot.num) plate(g + 1.8, 1.4, fz, lot.num);
@@ -396,7 +403,8 @@ function garden(l) {
   if (l.maple) tree(S, l.cx - 1.5, s * 9.6, 3.6, 'red'); // Japanese maple
   if (l.poppies || (s < 0 && rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate);
 }
-// everything a houses/*.js builder may use. l (the lot): { x0, x1, cx, s, zf, gate, st, ...hero }; street facade line z = s*zf,
+// everything a houses/*.js builder may use. l (the lot): { x0, x1, cx, s, zf, gate, st, ...hero } (hero may also set wicket: x of a
+// pedestrian gate in the front wall, mailDx: letterbox offset from the gate); street facade line z = s*zf,
 // front wall z = s*WALL_Z; the game camera looks from +x/+z. Keep to x0..x1 and |z| > WALL_Z + 0.3; S is merged per material.
 const KIT = { THREE, S, box, tbox, mesh, M, tmat, canvasTex, inst, GLASS, LAMP, tileTex, ROOFS, WALLS, SHUTTERS, GREENS, REDS, HEDGES, STYLES, BLOB, FLOWER, TUFT, CONE, TRUNK, BALL, BAR, SLAT, WAVE, COBBLE, WALK,
   win, door, oeil, house, garden, blob, tree, shrub, hedge, zhedge, banana, poppies, pillar, plate, rnd, sr, sp, V2, V3, WALL_Z, CURB_Z, SLOT_Z, GATES };
@@ -405,10 +413,13 @@ function row(s, cuts, gates = [], main = true) {
     const x1 = cuts[i + 1], hero = (main && HEROES.find(h => h.s === s && h.x > x0 && h.x < x1)) || {};
     return { x0, x1, s, zf, cx: (x0 + x1) / 2, ...hero, st: typeof hero.style === 'object' ? hero.style : STYLES[hero.style ?? sp(LOT_STYLES)], gate: gates.find(g => g > x0 && g < x1) };
   });
-  const xs = [...new Set([...cuts, ...gates.flatMap(g => [g - 1.8, g + 1.8])])].sort((p, q) => p - q);
+  const wk = lots.flatMap(l => l.wicket ?? []); // pedestrian gates in the front wall
+  const xs = [...new Set([...cuts, ...gates.flatMap(g => [g - 1.8, g + 1.8]), ...wk.flatMap(w => [w - 0.6, w + 0.6])])].sort((p, q) => p - q);
   for (let i = 0; i < xs.length - 1; i++) {
-    const a = xs[i], b = xs[i + 1], lot = lots.find(l => (a + b) / 2 > l.x0 && (a + b) / 2 < l.x1), g = gates.find(g => Math.abs(g - (a + b) / 2) < 0.1);
-    if (g !== undefined) gate(g, s, lot); else fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01));
+    const a = xs[i], b = xs[i + 1], m = (a + b) / 2, lot = lots.find(l => m > l.x0 && m < l.x1), g = gates.find(g => Math.abs(g - m) < 0.1);
+    if (g !== undefined) gate(g, s, lot);
+    else if (wk.some(w => Math.abs(w - m) < 0.1)) wicket(m, s, lot.st);
+    else fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01) || wk.some(w => Math.abs(w - 0.6 - b) < 0.01));
   }
   for (const l of lots) {
     const lw = l.x1 - l.x0, cx = l.cx;
@@ -426,7 +437,7 @@ function row(s, cuts, gates = [], main = true) {
       garden(l);
     }
     if (l.x1 < cuts.at(-1)) zhedge(l.x1, s * (WALL_Z + 0.4), s * (zf - 0.3), 1.2, sp(Object.values(HEDGES).slice(0, 3)), 0.7); // between front gardens
-    tree(S, sr(l.x0 + 1, l.x1 - 1), s * sr(22, 26), sr(4.5, 7.5), sp(['green', 'green', 'red', 'cone']));
+    if (!l.build) tree(S, sr(l.x0 + 1, l.x1 - 1), s * sr(22, 26), sr(4.5, 7.5), sp(['green', 'green', 'red', 'cone'])); // real houses plant their own
   }
 }
 function roadSign(x, z, rotY, draw) {
