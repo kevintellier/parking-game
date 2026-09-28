@@ -230,111 +230,57 @@ export function buildJack() {
 }
 
 // ───────────── Kévin's black BMW Z4 E89 roadster, hardtop closed. Contract: { g, body, len, w, exhaust } like buildTruck.
-// Body and greenhouse are lofted surfaces: at each station x a rounded (superellipse) cross-section sized by smooth side/plan profiles.
-const z4prof = pts => { // smooth profile through [x, y] knots (ascending x) -> y(x)
-  const P = new THREE.CatmullRomCurve3(pts.map(([x, y]) => new THREE.Vector3(x, y, 0)), false, 'centripetal').getPoints(400);
-  return x => { let i = 1; while (i < P.length - 1 && P[i].x < x) i++; const a = P[i - 1], b = P[i]; return a.y + (b.y - a.y) * Math.min(1, Math.max(0, (x - a.x) / (b.x - a.x || 1))); };
-};
-const z4loft = (k, nu, nv, f) => once('z4loft' + k, () => { // f(u, v) -> [x, y, z]; u along the car, v around the section
-  const pos = [], uv = [], idx = [];
-  for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) { pos.push(...f(i / nu, j / nv)); uv.push(i / nu, j / nv); }
-  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) { const a = i * (nv + 1) + j, b = a + nv + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
-  const geo = new THREE.BufferGeometry(); geo.setIndex(idx);
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.computeVertexNormals(); return geo;
-});
+// Boxy like the other cars: carBase body with a long sloping bonnet, cab set far back, painted hardtop sail over the glass.
 export function buildZ4(env) {
-  const len = 4.24, w = 1.79, L = len / 2, W2 = 0.868, wr = 0.32, tw = 0.24, axles = [1.29, -1.21], R = wr + 0.045;
-  const g = new THREE.Group(), body = new THREE.Group(), E = { envMap: env }; g.add(body);
-  const sg = (v, e) => Math.sign(v) * Math.abs(v) ** e;
-  const top = z4prof([[-L, 0.8], [-2.09, 0.93], [-2.0, 0.985], [-1.6, 0.99], [-1.2, 0.975], [-0.6, 0.95], [0.2, 0.925], [0.9, 0.86], [1.5, 0.8], [1.85, 0.75], [2.0, 0.7], [2.1, 0.64], [L, 0.58]]);
-  const bot = z4prof([[-L, 0.3], [-2.07, 0.24], [-1.9, 0.22], [-1.6, 0.17], [1.6, 0.16], [1.95, 0.19], [2.08, 0.23], [L, 0.3]]);
-  const hw = x => (W2 + 0.027 * (bump(x, axles[0], 0.42) + bump(x, axles[1], 0.45))) * Math.max(0, 1 - Math.abs(x / L) ** (x > 0 ? 3.6 : 5)) ** (x > 0 ? 1 / 3.6 : 0.2);
-  const arch = x => Math.max(-1, ...axles.map(a => Math.abs(x - a) < R ? wr + Math.sqrt(R * R - (x - a) ** 2) : -1));
-  const p = M('#0a0b0f', { roughness: 0.16, metalness: 0.55, envMapIntensity: 1.3, ...E });
-  const bp = (x, th) => { // body surface point at station x, section angle th (0 = +z side, PI/2 = top)
-    const c = Math.cos(th), s = Math.sin(th), yt = top(x), yb = bot(x), yy = sg(s, 0.6), zz = sg(c, 0.32);
-    let y = (yt + yb) / 2 + (yt - yb) / 2 * yy;
-    y += 0.035 * (bump(x, axles[0], 0.45) + 0.8 * bump(x, axles[1], 0.5)) * Math.abs(zz) ** 4 * Math.max(0, s); // fenders stand above bonnet/deck
-    const crease = 0.02 * bump(y, 0.5 + 0.12 * (0.75 - x) / 2.7, 0.07) * bump(x, -0.6, 1.3); // concave side sculpt under the rising shoulder line
-    const z = hw(x) * zz * (1 - 0.07 * Math.max(0, yy) ** 3 - 0.05 * Math.max(0, -yy) ** 2 - crease); // tuck in at top and bottom
-    return [x, Math.max(y, arch(x)), z];
-  };
-  add(body, z4loft('body', 150, 48, (u, v) => bp(L * ((2 * u - 1) * 0.5 - 0.5 * Math.cos(PI * u)), 2 * PI * v - PI / 2)), p);
-  // flush parts (lamps) are patches of the body surface itself, lifted a few mm: x = xf(u), th between band(u) limits; k = side
-  const skin = (key, k, xf, band, m, lift = 1) => add(body, z4loft(key + k, 24, 10, (u, v) => {
-    const [a, b] = band(u), t = k > 0 ? v : 1 - v, th = a + (b - a) * t, [x, y, z] = bp(xf(u), k > 0 ? th : PI - th);
-    return [x * (1 + 0.0015 * lift), y + 0.002 * lift, z * (1 + 0.01 * lift)];
-  }), m);
-  // greenhouse: windscreen, hardtop, small rear window; windows painted in a texture over (x, around) space
-  const rt = z4prof([[-1.74, 0.9], [-1.5, 1.05], [-1.2, 1.2], [-0.85, 1.272], [-0.5, 1.268], [-0.2, 1.17], [0.1, 1.03], [0.36, 0.88]]), X0 = -1.74, X1 = 0.36;
-  const cabTex = tex('z4cab', 512, 256, (c, W, H) => {
-    const P = pts => { c.beginPath(); for (const [x, v] of pts) c.lineTo((x - X0) / (X1 - X0) * W, v * H); c.closePath(); c.fill(); };
-    const both = pts => { P(pts); P(pts.map(([x, v]) => [x, 1 - v])); };
-    c.fillStyle = '#0b0c10'; c.fillRect(0, 0, W, H);
-    c.fillStyle = '#1b2632';
-    P([[0.34, 0.11], [-0.47, 0.25], [-0.47, 0.75], [0.34, 0.89]]); // windscreen
-    both([[0.24, 0.02], [-0.41, 0.19], [-0.95, 0.2], [-1.24, 0.02]]); // side windows
-    P([[-1.52, 0.33], [-1.25, 0.3], [-1.25, 0.7], [-1.52, 0.67]]); // rear window
-    c.fillStyle = '#050608'; c.fillRect((-0.86 - X0) / (X1 - X0) * W, 0, 2, H); // hardtop split line
-  });
-  add(body, z4loft('cab', 60, 32, (u, v) => {
-    const x = X0 + (X1 - X0) * u, th = PI * v, s = Math.sin(th), f = s ** 0.55, yb = top(x) - 0.03, h = Math.max(0, rt(x) - yb);
-    const hb = Math.min(hw(x) - 0.08, 0.8), half = hb + (0.56 - hb) * f;
-    return [x, yb + h * f, half * sg(Math.cos(th), 0.35)];
-  }), M('#ffffff', { map: cabTex, roughness: 0.08, metalness: 0.6, envMapIntensity: 1.3, ...E }));
-  // dark inner wheel housings / floor, seen through the arches
-  add(body, G(THREE.BoxGeometry, 3.7, 0.52, 1.2), '#0c0c0d', 0.02, 0.44, 0);
-  const box = (m, sx, sy, sz, x, y, z) => add(body, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
-  const rbox = (m, sx, sy, sz, r, x, y, z) => add(body, G(RoundedBoxGeometry, sx, sy, sz, 2, r), m, x, y, z);
-  const chrome = M('#d9dee2', { roughness: 0.12, metalness: 1, ...E }), black = M('#111214', { roughness: 0.45 }), lens = M('#aeb8c1', { roughness: 0.08, metalness: 0.6, ...E });
-  const ring = M('#f2f7ff', { emissive: '#dfeaff', emissiveIntensity: 1.6 }), red = M('#7a0a0c', { roughness: 0.15, metalness: 0.3, ...E }), glow = M('#ff3020', { emissive: '#ff1a10', emissiveIntensity: 1.4 });
-  const slats = M('#ffffff', { roughness: 0.4, metalness: 0.5, map: tex('kidney', 64, 64, (c, s) => { c.fillStyle = '#0c0d0f'; c.fillRect(0, 0, s, s); c.fillStyle = '#5b6066'; for (let x = 3; x < s; x += 8) c.fillRect(x, 0, 3, s); }) });
-  const eye = once('z4eye', () => new THREE.TorusGeometry(0.042, 0.007, 6, 20).rotateY(PI / 2));
-  for (const k of [-1, 1]) {
-    // wide flat kidneys at the tip of the nose, leaning back with it
-    rbox(chrome, 0.06, 0.15, 0.27, 0.045, L - 0.035, 0.5, k * 0.16).rotation.z = 0.5;
-    box(slats, 0.03, 0.12, 0.23, L - 0.015, 0.5, k * 0.16).rotation.z = 0.5;
-    // long swept-back headlights with two angel-eye rings
-    const hx = u => 1.58 + 0.51 * (1 - (1 - u) ** 2);
-    skin('z4head', k, hx, u => [0.6 - 0.36 * u, 0.9 + 0.08 * u], lens);
-    for (const [x, y, z] of [[2.03, 0.6, 0.47], [1.96, 0.635, 0.6]]) add(body, eye, ring, x, y, k * z).rotation.y = k * 0.75;
-    // side gill behind the front wheel (chrome strip), door handle, mirror
-    const gl = box(chrome, 0.24, 0.035, 0.02, 0.75, 0.62, k * 0.893); gl.rotation.z = 0.3; box(black, 0.2, 0.07, 0.015, 0.77, 0.58, k * 0.89).rotation.z = 0.3;
-    box(chrome, 0.14, 0.025, 0.02, -0.55, 0.86, k * 0.875);
-    rbox(p, 0.17, 0.1, 0.14, 0.045, 0.08, 1.0, k * 0.86); box(black, 0.08, 0.03, 0.06, 0.1, 0.95, k * 0.79);
-    // L-shaped tail lights wrapping round the rear corners
-    const tx = u => -2.1179 + 0.26 * u ** 3;
-    skin('z4tail', k, tx, u => [0.22 + 0.2 * u, 0.66], red);
-    skin('z4tailBar', k, tx, () => [0.56, 0.6], glow, 2);
-    skin('z4tailL', k, u => -2.075 + 0.03 * u, () => [0.28, 0.6], glow, 2);
-    add(body, once('z4pipe', () => new THREE.CylinderGeometry(0.045, 0.045, 0.1, 14).rotateZ(PI / 2)), chrome, -L + 0.02, 0.27, k * 0.55); // tailpipes
-    add(body, once('z4pipeIn', () => new THREE.CircleGeometry(0.035, 12).rotateY(-PI / 2)), black, -L - 0.035, 0.27, k * 0.55);
-  }
-  box(black, 0.05, 0.14, 0.8, L - 0.05, 0.3, 0); // lower intake
-  box(black, 0.05, 0.12, 1.3, -L + 0.03, 0.3, 0); // diffuser
-  box(M('#f4f4f2'), 0.02, 0.11, 0.5, L - 0.02, 0.3, 0); box(M('#f4f4f2'), 0.02, 0.11, 0.5, -L + 0.005, 0.6, 0); // plates
-  const roundel = M('#ffffff', { map: tex('bmwLogo', 64, 64, (c, s) => {
-    c.fillStyle = '#111'; c.beginPath(); c.arc(32, 32, 31, 0, 2 * PI); c.fill();
-    for (let i = 0; i < 4; i++) { c.fillStyle = i % 2 ? '#fff' : '#1c69d4'; c.beginPath(); c.moveTo(32, 32); c.arc(32, 32, 19, i * PI / 2, (i + 1) * PI / 2); c.fill(); }
-  }) });
-  add(body, once('z4roundel', () => new THREE.CircleGeometry(0.04, 16).rotateY(PI / 2).rotateZ(0.9)), roundel, 2.075, 0.62, 0);
-  add(body, once('z4roundelR', () => new THREE.CircleGeometry(0.04, 16).rotateY(-PI / 2)), roundel, -L - 0.005, 0.8, 0);
-  // wheels: 18" double-spoke rims
-  const rim = rimTex('z4Rim', (c, r) => {
+  const len = 4.24, w = 1.79, sill = 0.2, belt = 0.9, hood = 0.28, fx = 0.36, h = 0.32;
+  const rim = rimTex('z4Rim', (c, r) => { // 18" double-spoke
     c.fillStyle = '#1c1d20'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill();
     c.strokeStyle = '#cfd3d7'; c.lineCap = 'round';
     for (let i = 0; i < 5; i++) { c.rotate(2 * PI / 5); c.lineWidth = 8; c.beginPath(); c.moveTo(-4, 12); c.lineTo(-12, r - 6); c.moveTo(4, 12); c.lineTo(12, r - 6); c.stroke(); }
     c.lineWidth = 5; c.beginPath(); c.arc(0, 0, r - 3, 0, 2 * PI); c.stroke();
     c.fillStyle = '#cfd3d7'; c.beginPath(); c.arc(0, 0, 15, 0, 2 * PI); c.fill(); c.fillStyle = '#26282b'; c.beginPath(); c.arc(0, 0, 7, 0, 2 * PI); c.fill();
   });
-  const tire = once('tire' + wr + tw, () => new THREE.CylinderGeometry(wr, wr, tw, 24).rotateX(PI / 2)), disc = once('disc' + wr, () => new THREE.CircleGeometry(wr * 0.72, 24));
-  for (const x of axles) for (const k of [-1, 1]) {
-    const z = k * (w / 2 - tw / 2 - 0.025);
-    add(g, tire, M('#18181a', { roughness: 0.9 }), x, wr, z);
-    add(g, disc, rim, x, wr, z + k * (tw / 2 + 0.003)).rotation.y = k > 0 ? 0 : PI;
+  const { g, body, p, E, L } = carBase(env, 'z4', { len, w, sill, belt, hood, cab: [-1.72, fx, -0.45, -1.1, h], paint: '#0a0b0f', wheelR: 0.32, tw: 0.24, axles: [1.29, -1.21], rim });
+  const top = x => belt - hood * Math.min(1, Math.max(0, (x - fx) / (L - fx))), slope = Math.atan(hood / (L - fx)); // bonnet height at x
+  const box = (m, sx, sy, sz, x, y, z) => add(body, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
+  const rbox = (m, sx, sy, sz, r, x, y, z) => add(body, G(RoundedBoxGeometry, sx, sy, sz, 2, r), m, x, y, z);
+  const chrome = M('#d9dee2', { roughness: 0.12, metalness: 1, ...E }), black = M('#111214', { roughness: 0.45 }), lens = M('#9aa6b2', { roughness: 0.08, metalness: 0.6, ...E });
+  const led = M('#f2f7ff', { emissive: '#dfeaff', emissiveIntensity: 1.4 }), red = M('#9c0d10', { emissive: '#e01010', emissiveIntensity: 0.7 });
+  const glass = M('#1b232c', { roughness: 0.06, metalness: 0.6, ...E });
+  // hardtop: body-colour sail panels hide the rear of the glass cab, leaving a small raked rear window
+  add(body, once('z4sail', () => {
+    const d = w - 0.18, geo = new THREE.ExtrudeGeometry(new THREE.Shape([[-1.75, 0], [-0.95, 0], [-1.07, h + 0.01], [-1.12, h + 0.01]].map(([x, y]) => new THREE.Vector2(x, y))), { depth: d, bevelEnabled: false }).translate(0, 0, -d / 2), v = geo.attributes.position;
+    for (let i = 0; i < v.count; i++) v.setZ(i, v.getZ(i) * (1 - 0.14 * v.getY(i) / h));
+    geo.computeVertexNormals(); return geo;
+  }), p, 0, belt - 0.02, 0);
+  box(glass, 0.36, 0.02, 0.9, -1.43, belt + 0.15, 0).rotation.z = Math.atan(h / 0.63);
+  const slats = M('#ffffff', { roughness: 0.4, metalness: 0.5, map: tex('kidney', 64, 64, (c, s) => { c.fillStyle = '#0c0d0f'; c.fillRect(0, 0, s, s); c.fillStyle = '#5b6066'; for (let x = 3; x < s; x += 8) c.fillRect(x, 0, 3, s); }) });
+  for (const k of [-1, 1]) {
+    // wide flat kidneys low on the nose
+    rbox(chrome, 0.05, 0.15, 0.28, 0.04, L - 0.01, 0.5, k * 0.17); box(slats, 0.03, 0.11, 0.23, L + 0.005, 0.5, k * 0.17);
+    // long headlights swept back along the bonnet corners, LED eyebrow on the inner edge
+    const hl = pivot(body, 1.8, top(1.8) - 0.012, k * 0.6); hl.rotation.set(0, -k * 0.18, -slope);
+    add(hl, G(THREE.BoxGeometry, 0.5, 0.05, 0.2), lens); add(hl, G(THREE.BoxGeometry, 0.4, 0.055, 0.03), led, 0.05, 0.002, -k * 0.09);
+    box(black, 0.04, 0.16, 0.1, L - 0.01, 0.34, k * 0.7); // air curtains
+    // side gill behind the front wheel, door handle, window line, mirror
+    box(black, 0.24, 0.07, 0.02, 0.82, 0.62, k * (w / 2 + 0.003)).rotation.z = 0.3; box(chrome, 0.26, 0.02, 0.025, 0.82, 0.66, k * (w / 2 + 0.005)).rotation.z = 0.3;
+    box(chrome, 0.14, 0.025, 0.02, -0.55, 0.86, k * (w / 2 + 0.01));
+    box(chrome, 1.3, 0.02, 0.02, -0.33, belt + 0.01, k * (w / 2 - 0.1)); // window line
+    rbox(p, 0.17, 0.1, 0.14, 0.04, 0.12, belt + 0.07, k * (w / 2 - 0.02));
+    // L-shaped tail lights wrapping round the rear corners
+    box(red, 0.05, 0.07, 0.36, -L + 0.01, 0.77, k * 0.56); box(red, 0.05, 0.17, 0.08, -L + 0.01, 0.7, k * 0.7);
+    box(red, 0.26, 0.07, 0.04, -L + 0.14, 0.77, k * (w / 2 - 0.005));
+    add(body, once('z4pipe', () => new THREE.CylinderGeometry(0.045, 0.045, 0.12, 10).rotateZ(PI / 2)), chrome, -L - 0.01, 0.27, k * 0.55); // tailpipes
   }
-  return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.05, 0.27, -0.55) };
+  box(black, 0.05, 0.12, 0.9, L - 0.01, 0.3, 0); box(black, 0.05, 0.1, 1.4, -L + 0.01, 0.27, 0); // lower intake, diffuser
+  box(M('#f4f4f2'), 0.02, 0.11, 0.5, L + 0.02, 0.32, 0); box(M('#f4f4f2'), 0.02, 0.11, 0.5, -L - 0.01, 0.55, 0); // plates
+  const roundel = M('#ffffff', { map: tex('bmwLogo', 64, 64, (c, s) => {
+    c.fillStyle = '#111'; c.beginPath(); c.arc(32, 32, 31, 0, 2 * PI); c.fill();
+    for (let i = 0; i < 4; i++) { c.fillStyle = i % 2 ? '#fff' : '#1c69d4'; c.beginPath(); c.moveTo(32, 32); c.arc(32, 32, 19, i * PI / 2, (i + 1) * PI / 2); c.fill(); }
+  }) });
+  add(body, once('z4roundel', () => new THREE.CircleGeometry(0.045, 16).rotateX(-PI / 2).rotateZ(-slope)), roundel, 1.92, top(1.92) + 0.004, 0);
+  add(body, once('z4roundelR', () => new THREE.CircleGeometry(0.04, 16).rotateY(-PI / 2)), roundel, -L - 0.005, 0.8, 0);
+  return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.07, 0.27, -0.55) };
 }
 
 // ───────────── MAN TGS tipper with knuckle-boom crane (camion.png)
