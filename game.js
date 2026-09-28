@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTruck, buildBMW, buildSpring } from './models.js';
+import { buildTruck, buildBMW, buildSpring, buildPicasso } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
@@ -1119,7 +1119,7 @@ function buyCar() {
   if (score < price) return toast(`A car costs ${price} credits`);
   if (garageBusy()) return toast('Move the car in front of your garage first');
   score -= price; carsOwned++;
-  const m = [buildBMW, buildSpring][carsOwned - 2]?.(ENV);
+  const m = [buildBMW, buildSpring, buildPicasso][carsOwned - 2]?.(ENV);
   const c = addCar('mine', MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length], pick(['hatch', 'mini', 'mpv']), m);
   Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0, broken: Math.random() < 0.35 }); // some won't start: Stéphane comes
   if (m?.exhaust) Object.assign(c, { exhaust: m.exhaust, smoky: true, smokeT: 0 });
