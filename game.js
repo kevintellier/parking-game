@@ -355,8 +355,13 @@ function plate(x, y, z, txt) { // blue enamel house-number plate
   }) }));
   m.position.set(x, y, z); m.rotation.y = z > 0 ? Math.PI : 0; S.add(m);
 }
-function wicket(x, s, st) { // pedestrian gate: a railed leaf in the gate colour over a low threshold
-  const z = s * WALL_Z, mat = M(st.gate, { metalness: 0.4, roughness: 0.5 });
+function wicket(x, s, lot) { // pedestrian gate: a railed leaf in the gate colour over a low threshold
+  const st = lot.st, z = s * WALL_Z, mat = M(st.gate, { metalness: 0.4, roughness: 0.5 });
+  if (lot.gate === undefined) { // no driveway gate: the number plate and letterbox go on the wicket's pillars
+    const fz = s * (WALL_Z - 0.27);
+    if (lot.num) plate(x + 0.95, 1.4, fz, lot.num);
+    box(S, 0.34, 0.42, 0.1, lot.mail ?? '#3a3d40', x - 0.95, 1.2, fz);
+  }
   box(S, 1.2, 0.08, 0.3, st.cap, x, 0.04, z);
   box(S, 1.1, 0.7, 0.05, mat, x, 0.5, z);
   for (const y of [0.9, 1.55]) box(S, 1.1, 0.06, 0.07, mat, x, y, z);
@@ -418,7 +423,7 @@ function row(s, cuts, gates = [], main = true) {
   for (let i = 0; i < xs.length - 1; i++) {
     const a = xs[i], b = xs[i + 1], m = (a + b) / 2, lot = lots.find(l => m > l.x0 && m < l.x1), g = gates.find(g => Math.abs(g - m) < 0.1);
     if (g !== undefined) gate(g, s, lot);
-    else if (wk.some(w => Math.abs(w - m) < 0.1)) wicket(m, s, lot.st);
+    else if (wk.some(w => Math.abs(w - m) < 0.1)) wicket(m, s, lot);
     else fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01) || wk.some(w => Math.abs(w - 0.6 - b) < 0.01));
   }
   for (const l of lots) {

@@ -2,7 +2,7 @@
 // A 1920s pavillon: steep gable to the street with flared eaves (coyau), orange tiles, cream render on a millstone
 // (meulière) basement; a small entry wing with steps on the north (+x) side, a low mono-pitch annex on the south (-x)
 // side, a tall Japanese maple in front of the annex.
-export const hero = { style: { wall: '#ece6da', cap: '#b7b5b0', pil: '#e8e3d9', bar: '#222427', gate: '#3b4450' }, num: '88', mail: '#2b2d30' };
+export const hero = { style: { wall: '#ece6da', cap: '#b7b5b0', pil: '#e8e3d9', bar: '#222427', gate: '#3b4450' }, num: '88', mail: '#2b2d30', wicket: -31.9 }; // pedestrian gate with the 88 plate at the north end
 
 const CREAM = '#ebe1cd', TRIM = '#f4efe4', FRAME = '#8f969b';
 
