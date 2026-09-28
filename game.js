@@ -460,6 +460,15 @@ function buildBin(P, body, lid) {
   return g;
 }
 
+// contiguous bays (sorted x) → groups, as drawn by the parking markings
+const bayGroups = xs => xs.reduce((gs, x, i) => (i && x - xs[i - 1] < SLOT_LEN + 0.1 ? gs.at(-1).push(x) : gs.push([x]), gs), []);
+// parking markings of one group: dashed lane edge, short ticks between bays, slanted lines at both ends
+function markings(P, s, gp) {
+  const a = gp[0] - SLOT_LEN / 2, b = gp.at(-1) + SLOT_LEN / 2, edge = s * (SLOT_Z - 1.15), W = '#efefe9';
+  for (let x = a + 0.3; x < b; x += 1.2) box(P, 0.6, 0.01, 0.12, W, x, 0.006, edge);
+  for (const [x, k] of [[a, -1], [b, 1]]) box(P, 2.54, 0.01, 0.12, W, x + k * 0.75, 0.006, edge + s * 1.02).rotation.y = -k * s * 0.94;
+  for (let i = 1; i < gp.length; i++) box(P, 0.1, 0.01, 0.5, W, gp[i] - SLOT_LEN / 2, 0.006, edge + s * 0.25);
+}
 function buildWorld() {
   const ground = (w, d, map, x, y, z) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map, roughness: 0.95 }));
@@ -476,15 +485,7 @@ function buildWorld() {
       box(S, b - a, 0.2, 0.25, '#bdbab2', (a + b) / 2, 0.1, s * CURB_Z);
       box(S, b - a, 0.012, 0.35, '#7b7872', (a + b) / 2, 0.004, s * (CURB_Z - 0.3));
     }
-    // parking markings: dashed lane edge, short ticks between bays, slanted lines at both ends of each group
-    const xs = SLOT_XS[s], groups = [[xs[0]]], edge = s * (SLOT_Z - 1.15), W = '#efefe9';
-    for (let i = 1; i < xs.length; i++) (xs[i] - xs[i - 1] > SLOT_LEN + 0.1 ? groups[groups.push([]) - 1] : groups.at(-1)).push(xs[i]);
-    for (const gp of groups) {
-      const a = gp[0] - SLOT_LEN / 2, b = gp.at(-1) + SLOT_LEN / 2;
-      for (let x = a + 0.3; x < b; x += 1.2) box(S, 0.6, 0.01, 0.12, W, x, 0.006, edge);
-      for (const [x, k] of [[a, -1], [b, 1]]) box(S, 2.54, 0.01, 0.12, W, x + k * 0.75, 0.006, edge + s * 1.02).rotation.y = -k * s * 0.94;
-      for (let i = 1; i < gp.length; i++) box(S, 0.1, 0.01, 0.5, W, gp[i] - SLOT_LEN / 2, 0.006, edge + s * 0.25);
-    }
+    for (const gp of bayGroups(SLOT_XS[s])) markings(S, s, gp);
     // lots (walls, gates, houses, gardens), a few beyond the cross streets, then a back row
     row(s, CUTS[s], GATES[s]);
     row(s, [63, 76, 88], [], false); row(s, [-88, -76, -63], [], false);
@@ -733,31 +734,35 @@ const circles = (c, x = c.x, z = c.z, ang = c.ang) => { const cs = Math.cos(ang)
 // ───────────────────────── slots
 const slotGeo = new THREE.PlaneGeometry(SLOT_LEN - 0.35, 2.0);
 const slots = [];
-for (const s of [-1, 1]) for (const x of SLOT_XS[s]) {
+function addSlot(x, s) {
   const ov = new THREE.Mesh(slotGeo, new THREE.MeshBasicMaterial({ color: '#fff', transparent: true, opacity: 0, depthWrite: false }));
   ov.rotation.x = -Math.PI / 2; ov.position.set(x, 0.012, s * SLOT_Z);
   scene.add(ov);
   slots.push({ x, z: s * SLOT_Z, side: s, ai: null, block: null, ov });
 }
-// top-of-screen strip: far side (s=-1) on top, near side below, both left→right along X
-{
+for (const s of [-1, 1]) for (const x of SLOT_XS[s]) addSlot(x, s);
+// top-of-screen strip: far side (s=-1) on top, near side below, both left→right along X; rebuilt when bays/meters are bought
+function buildStrip() {
   const strip = $('strip');
+  strip.replaceChildren();
   for (const s of [-1, 1]) {
     const row = document.createElement('div'); row.className = 'row';
     let prev = null;
     for (const sl of slots.filter(q => q.side === s).sort((p, q) => p.x - q.x)) {
       if (prev !== null && sl.x - prev > SLOT_LEN + 0.1) row.append(Object.assign(document.createElement('div'), { className: 'gap' }));
-      sl.el = Object.assign(document.createElement('div'), { className: 's' });
+      sl.el = Object.assign(document.createElement('div'), { className: sl.meter ? 's m' : 's' });
       row.append(sl.el); prev = sl.x;
     }
     strip.append(row);
   }
 }
+buildStrip();
 const inSlot = (o, s) => Math.abs(o.x - s.x) < SLOT_LEN / 2 && Math.abs(o.z - s.z) < 1.4; // pedestrians
 // vehicles block every bay their length overlaps by ≥1.2 m while in that side's parking lane: parked across a line = 2 bays
 const covers = (c, s) => Math.abs(c.z - s.z) < 1.4 && (SLOT_LEN + c.len) / 2 - Math.abs(c.x - s.x) >= 1.2;
 // E-snap targets per side: bay centres + boundaries between adjacent bays
-const SNAP_XS = Object.fromEntries([1, -1].map(s => [s, SLOT_XS[s].flatMap((x, i, a) => a[i + 1] - x < SLOT_LEN + 0.1 ? [x, x + SLOT_LEN / 2] : [x])]));
+const SNAP_XS = {}, resnap = () => { for (const s of [1, -1]) SNAP_XS[s] = SLOT_XS[s].flatMap((x, i, a) => a[i + 1] - x < SLOT_LEN + 0.1 ? [x, x + SLOT_LEN / 2] : [x]); };
+resnap();
 const parkZ = (c, side) => side * Math.min(SLOT_Z, CURB_Z - c.r - 0.15); // wide vehicles keep off the curb so they can pull out
 const snapX = (side, x) => SNAP_XS[side].reduce((a, b) => Math.abs(b - x) < Math.abs(a - x) ? b : a);
 const parkedAng = () => 0; // one-way: everyone parks facing +x
@@ -1046,7 +1051,7 @@ function pedPush(p, o, m = P_R) {
 }
 function pushOut(p) {
   for (const o of cars) if (o.state !== 'away') pedPush(p, o);
-  for (const b of bins) {
+  for (const b of [...bins, ...meters]) {
     const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz), m = BIN_R + P_R;
     if (d < m && d > 1e-4) { p.x = b.x + (dx / d) * m; p.z = b.z + (dz / d) * m; }
   }
@@ -1198,6 +1203,68 @@ function buyTruck() {
   pushOut(player);
 }
 
+// ───────────────────────── paid parking meters and extra bays
+// a meter on a group: each of its bays not taken by a stranger earns METER_BONUS more (0.3 → 0.9 base credits/s, × the streak multiplier)
+const METER_BONUS = 0.6, meters = [];
+let meterRate = 0, baysBought = 0;
+const meterPrice = () => 800 * 2 ** meters.length;
+const meterGroup = () => { // group nearest Erika without a meter yet
+  const from = driving || player, d = g => Math.hypot((g[0].x + g.at(-1).x) / 2 - from.x, g[0].z - from.z);
+  return [1, -1].flatMap(s => bayGroups(SLOT_XS[s]).map(xs => slots.filter(q => q.side === s && xs.includes(q.x))))
+    .filter(g => !g[0].meter).sort((a, b) => d(a) - d(b))[0];
+};
+const PAYANT = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, map: canvasTex(256, g => {
+  g.canvas.height = 64; g.fillStyle = '#efefe9'; g.font = '700 50px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PAYANT', 128, 34);
+}) });
+const PSIGN = new THREE.MeshStandardMaterial({ roughness: 0.5, map: canvasTex(64, g => {
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#1f5fbf'; g.fillRect(3, 3, 58, 58);
+  g.fillStyle = '#fff'; g.font = '700 46px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('P', 32, 35);
+}) });
+function buildMeter(x, s) { // « horodateur »: grey pay station on a post, screen and card slot on the camera side, blue P sign on top
+  const g = new THREE.Group(); g.position.set(x, 0.15, s * (CURB_Z + 0.3)); g.scale.setScalar(1.3); scene.add(g);
+  box(g, 0.1, 1.9, 0.1, '#3b4046', 0, 0.95, 0);
+  box(g, 0.38, 0.62, 0.3, '#6f7a84', 0, 1.15, 0);
+  box(g, 0.42, 0.06, 0.34, '#2c3136', 0, 1.49, 0);
+  box(g, 0.02, 0.14, 0.24, '#9fe0b4', 0.2, 1.3, 0); // screen
+  box(g, 0.02, 0.03, 0.12, '#ffd166', 0.2, 1.08, 0); // card slot
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.44), PSIGN); p.position.y = 2.05; p.rotation.y = Math.PI / 4; g.add(p); // faces the camera
+  return g;
+}
+function buyMeter() {
+  const grp = meterGroup(), price = meterPrice();
+  if (!grp) return toast('Toutes les places ont déjà leur borne');
+  if (score < price) return toast(`Une borne coûte ${price} crédits`);
+  score -= price;
+  const x = (grp[0].x + grp.at(-1).x) / 2, s = grp[0].side;
+  meters.push({ x, z: s * (CURB_Z + 0.3), g: buildMeter(x, s) });
+  for (const q of grp) {
+    q.meter = true;
+    const t = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.6), PAYANT); t.rotation.x = -Math.PI / 2; t.position.set(q.x, 0.009, s * (SLOT_Z + 0.55)); scene.add(t);
+  }
+  buildStrip();
+  puff(x, s * (CURB_Z + 0.3), 10, '#fff3c4');
+  floatText('Borne installée !', x, 3.6, s * SLOT_Z, '#8ecbff');
+  toast(`Borne de parking payant : ${grp.length} places rapportent plus`);
+  SFX.buy();
+}
+// extra bays for sale, in this order: clear of the gates (≥2.1 m), of the walkers' crossing at x=30 and of the zebras
+const BAY_SITES = [[1, [9.5, 14.9]], [-1, [13.5, 18.9]], [-1, [33.8, 39.2, 44.6]]];
+const baysPrice = () => 3000 * 2 ** baysBought;
+function buyBays() {
+  const site = BAY_SITES[baysBought], price = baysPrice();
+  if (!site) return toast('Plus de places à acheter dans la rue');
+  if (score < price) return toast(`Les nouvelles places coûtent ${price} crédits`);
+  score -= price; baysBought++;
+  const [s, xs] = site, x = (xs[0] + xs.at(-1)) / 2;
+  SLOT_XS[s].push(...xs); SLOT_XS[s].sort((a, b) => a - b); resnap();
+  for (const q of xs) addSlot(q, s);
+  markings(scene, s, xs); buildStrip();
+  for (const q of xs) puff(q, s * SLOT_Z, 8, '#fff3c4');
+  floatText(`${xs.length} nouvelles places !`, x, 3.6, s * SLOT_Z, '#ffd166');
+  toast(`${xs.length} places supplémentaires tracées ${s < 0 ? 'de ton côté' : 'en face'}, plus loin dans la rue !`);
+  SFX.buy();
+}
+
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyZ: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyQ: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'brake' };
 addEventListener('keydown', e => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
@@ -1210,12 +1277,16 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit1' || e.code === 'Numpad1') buyCar();
   if (e.code === 'Digit2' || e.code === 'Numpad2') buyTruck();
   if (e.code === 'Digit3' || e.code === 'Numpad3') buyFerrari();
+  if (e.code === 'Digit4' || e.code === 'Numpad4') buyMeter();
+  if (e.code === 'Digit5' || e.code === 'Numpad5') buyBays();
 });
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 $('buyCar').onclick = e => { buyCar(); e.currentTarget.blur(); };
 $('buyTruck').onclick = e => { buyTruck(); e.currentTarget.blur(); };
 $('buyFerrari').onclick = e => { buyFerrari(); e.currentTarget.blur(); };
+$('buyMeter').onclick = e => { buyMeter(); e.currentTarget.blur(); };
+$('buyBays').onclick = e => { buyBays(); e.currentTarget.blur(); };
 
 // ───────────────────────── per-frame bookkeeping
 function computeBlocks() {
@@ -1241,11 +1312,13 @@ function paintSlots() {
   }
 }
 function scoring(dt) {
-  foreignN = slots.filter(s => s.ai?.kind === 'foreign' && (s.ai.state === 'park' || s.ai.state === 'parked')).length;
+  const stranger = s => s.ai?.kind === 'foreign' && (s.ai.state === 'park' || s.ai.state === 'parked');
+  foreignN = slots.filter(stranger).length;
   const safe = slots.length - foreignN;
   if (foreignN === 0) { streak += dt; mult = 3 + Math.min(1.5, Math.floor(streak / 15) * 0.25); }
   else { streak = 0; mult = 1; }
-  rate = (1 + 0.3 * safe) * mult;
+  meterRate = METER_BONUS * slots.filter(s => s.meter && !stranger(s)).length * mult;
+  rate = (1 + 0.3 * safe) * mult + meterRate;
   score += rate * dt;
   if (score > best) { best = score; }
 }
@@ -1254,7 +1327,7 @@ function hud(dt) {
   if ((hudT -= dt) > 0) return;
   hudT = 0.1;
   $('score').textContent = Math.floor(score);
-  $('rate').textContent = `+${rate.toFixed(1)} /s`;
+  $('rate').textContent = `+${rate.toFixed(1)} /s` + (meterRate ? ` (bornes +${meterRate.toFixed(1)})` : '');
   $('foreign').textContent = foreignN;
   $('neigh').textContent = cars.filter(c => c.kind === 'neighbour' && c.state === 'parked').length;
   $('held').textContent = slots.filter(s => s.block && s.block !== player).length;
@@ -1268,7 +1341,12 @@ function hud(dt) {
   $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
   $('ferrariPrice').textContent = ferrariOwned ? 'Owned' : FERRARI_PRICE;
   $('buyFerrari').disabled = ferrariOwned || score < FERRARI_PRICE;
-  $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''}${ferrariOwned ? ' · the Ferrari' : ''} owned`)
+  const meterLeft = meterGroup();
+  $('meterPrice').textContent = meterLeft ? meterPrice() : 'Complet';
+  $('buyMeter').disabled = !meterLeft || score < meterPrice();
+  $('baysPrice').textContent = BAY_SITES[baysBought] ? baysPrice() : 'Complet';
+  $('buyBays').disabled = !BAY_SITES[baysBought] || score < baysPrice();
+  $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''}${ferrariOwned ? ' · the Ferrari' : ''} owned${meters.length ? ` · 🅿️ ${meters.length}` : ''}`)
     + (boostT > 0 ? ' · 🥖 fast!' : '') + (slowT > 0 ? ' · 💨 slowed' : '');
   const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.7 ? 1 : 2;
   if (tl !== trafficLevel) { if (tl === 2) toast('Rush hour! Cars everywhere'); else if (tl === 0 && trafficLevel > 0) toast('Traffic is calming down'); trafficLevel = tl; }
@@ -1686,7 +1764,43 @@ function selfTestMechanic() {
   ok(until(120, () => !cl.broken), "Stéphane fixes Clément's car");
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents })); // after __game exists
+// self-check: a meter raises the rate of its group (not for a bay a stranger sits in); bought bays are painted, snap, get blocked and are used by strangers. Returns 'ok' or throws.
+function selfTestEconomy() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestEconomy: ' + m); };
+  const until = (sec, f) => { for (let t = 0; t < sec && !f(); t += 0.2) window.__game.step(0.2); return f(); };
+  if (driving) { driving.speed = 0; actionE(); }
+  W.wait = PA.t = chatT = BAG.t = 1e9; score = 1e5;
+  for (const c of cars.filter(c => c.kind === 'foreign')) leaveStreet(c);
+  scoring(0); const r0 = rate, n0 = slots.length;
+  buyMeter(); const g = slots.filter(s => s.meter);
+  ok(meters.length === 1 && g.length >= 2 && score === 1e5 - 800 && meterPrice() === 1600, 'meter bought, next one costs more');
+  ok(g.every(s => s.el.classList.contains('m')), 'strip marks the metered bays');
+  scoring(0); ok(Math.abs(rate - r0 - METER_BONUS * g.length * mult) < 1e-9 && meterRate > 0, 'metered bays earn more');
+  const f = addCar('foreign', '#888', 'hatch'); placeParked(f, g[0], 999); scoring(0);
+  ok(mult === 1 && Math.abs(meterRate - METER_BONUS * (g.length - 1)) < 1e-9, 'no bonus for a bay a stranger sits in');
+  leaveStreet(f);
+  buyBays(); ok(slots.length === n0 + 2 && baysPrice() === 6000, 'first bays bought, next ones cost more');
+  buyBays(); buyBays(); const sc = score; buyBays();
+  ok(slots.length === n0 + 7 && score === sc, 'three sites, then nothing left to buy');
+  hud(1); ok($('buyBays').disabled && $('baysPrice').textContent === 'Complet', 'shop says sold out');
+  for (const sd of [1, -1]) ok(SLOT_XS[sd].every((x, i, a) => !i || x - a[i - 1] >= SLOT_LEN - 1e-9), 'no overlapping bays');
+  const nb = slots.slice(n0);
+  ok(nb.every(s => GATES[s.side].every(x => Math.abs(x - s.x) >= SLOT_LEN / 2 + 2.1) && CROSS_XS.every(x => Math.abs(x - s.x) >= SLOT_LEN / 2 + 0.5)
+    && Math.abs(s.x) + SLOT_LEN / 2 < 47.5 && s.el.isConnected && SNAP_XS[s.side].includes(s.x)), 'new bays clear of gates, crossings and zebras, in the strip and E-snap');
+  const [a, b] = nb, mine = cars.find(c => c.kind === 'mine' && !c.taken && !c.truck);
+  ok(snapX(a.side, a.x + 2) === a.x + SLOT_LEN / 2, 'E-snap on the line between two new bays');
+  Object.assign(mine, { x: a.x + SLOT_LEN / 2, z: parkZ(mine, a.side), ang: 0 }); computeBlocks();
+  ok(a.block === mine && b.block === mine, 'a car across the line blocks both new bays');
+  const t = nb[2], c = addCar('foreign', '#888', 'hatch');
+  Object.assign(player, { x: -40, z: -6 });
+  Object.assign(c, { x: t.x - 10.2, z: 0, speed: 4, state: 'drive', wantsSlot: true, slot: null, scan: 0 });
+  ok(findSlot(c) === t, 'strangers look for the new bays');
+  ok(until(20, () => c.state === 'parked' && c.slot === t && foreignN > 0), 'a stranger parks in a new bay');
+  Object.assign(player, { x: t.x, z: -6 }); buyMeter();
+  ok(t.meter && meters.length === 2, 'the nearest group, a new one, gets the next meter');
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -1735,7 +1849,7 @@ window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, sta
   zoom(v) { viewH = v; resize(); }, cam: { CAM_OFF, camTarget }, // screenshots: pause (P), then aim/tilt via CAM_OFF + player.x/z
   step(sec, dt = 1 / 30) { for (let t = 0; t < sec; t += dt) { update(dt); sync(dt); updateFx(dt); } } };
 // vehicles: selfTest() checks the straddle rule (a car on a bay line blocks 2, the truck 2 or 3) and the E-snap targets
-Object.assign(window.__game, { buyTruck, buyFerrari, circles, smoke, selfTest() {
+Object.assign(window.__game, { buyTruck, buyFerrari, buyMeter, buyBays, circles, smoke, selfTest() {
   const s = slots.find(q => q.side === -1 && q.x === -41), n = (dx, len = 4, dz = 0) => slots.filter(q => covers({ x: s.x + dx, z: s.z + dz, len }, q)).length;
   const got = [n(0), n(SLOT_LEN / 2), n(1.5), n(2), n(0, 4, -s.z), n(SLOT_LEN / 2, 9.6), n(SLOT_LEN, 9.6), n(SLOT_LEN + 1.5, 9.6)].join();
   if (got !== '1,2,1,2,0,2,3,2') throw new Error(`straddle rule: ${got}`);
