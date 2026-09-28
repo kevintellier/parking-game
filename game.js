@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4, buildPolo, buildF430 } from './models.js';
+import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4, buildPolo, buildF430, buildSeat } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
@@ -678,6 +678,7 @@ const SFX = {
   free: () => beep([880, 1175], 0.07, 'sine', 0.07),
   door: () => beep([160], 0.07, 'square', 0.04),
   crank: () => beep([55, 62, 50, 95], 0.11, 'sawtooth', 0.05),
+  pop: () => beep([rand(110, 170), rand(55, 80)], 0.035, 'square', 0.09), // exhaust backfire
   fart: () => beep([95, 80, 88, 66, 72, 52], 0.08, 'sawtooth', 0.07),
   boing: () => { // spring: pitch jumps then wobbles down
     if (!actx || muted) return;
@@ -1019,7 +1020,8 @@ function updateAI(c, dt) {
   }
   stuck(c, gap, who, dt);
   if ((target = exitGate(c, target)) < 0) return;
-  c.speed += clamp(target - c.speed, -14 * dt, 5 * dt);
+  if (c.seat) seatFx(c, dt, target);
+  c.speed += clamp(target - c.speed, -14 * dt, (c.seat ? 16 : 5) * dt);
   c.x += c.speed * c.dir * dt;
   c.z += (laneZ(c) - c.z) * Math.min(1, dt * 3);
   c.ang = c.dir > 0 ? 0 : Math.PI;
@@ -1032,6 +1034,24 @@ function updateAI(c, dt) {
 // 0 = calm, 1 = rush hour: some traffic from the start (0.12), then ~2.5 min waves (short rushes, longer calm spells) growing over the first minutes
 let trafficForced = null; // debug.trafic(v) pins it
 const traffic = () => trafficForced ?? 0.12 + 0.88 * clamp((elapsed - 30) / 240, 0, 1) * (0.25 + 0.75 * (0.5 - 0.5 * Math.cos(elapsed * 2 * Math.PI / 150)) ** 2);
+// the black Portuguese Seat: a stranger who floors it, blows black smoke and pops and bangs when lifting off
+function addSeat() {
+  const m = buildSeat(ENV), c = addCar('foreign', null, null, m);
+  return Object.assign(c, { seat: true, exhaust: m.exhaust, flames: m.flames, cruise: rand(11, 13), smokeT: 0, flameT: 0, popN: 0, popT: 0 });
+}
+function seatFx(c, dt, target) {
+  c.smokeT += dt * (target > c.speed + 0.5 ? 40 : 1.5); // floored: a black cloud, idling: a trickle
+  if (!c.popN && target < c.speed - 2 && Math.random() < dt * 4) c.popN = 2 + (Math.random() * 4 | 0); // lift-off: a burst of bangs
+  if (c.popN && (c.popT -= dt) <= 0) {
+    c.popN--; c.popT = rand(0.05, 0.16); c.flameT = 0.07; c.smokeT += 2;
+    if (nearPlayer(c.x, c.z)) { SFX.pop(); if (Math.random() < 0.3) floatText(pick(['PAN !', 'BANG !', 'Pop pop !']), c.x - 2, 2, c.z, '#ff9f1c'); }
+  }
+  if (c.smokeT >= 1) {
+    c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = c.ang; c.mesh.updateMatrixWorld();
+    const p = c.mesh.localToWorld(c.exhaust.clone());
+    for (; c.smokeT >= 1; c.smokeT--) smokePuff(p);
+  }
+}
 function spawner(dt) { // arrivals: 70% strangers (some just pass by on Rue du Centre), 20% neighbours, 10% Erika's household
   if ((spawnT -= dt) > 0) return;
   spawnT = (9 - 8.1 * traffic()) * rand(0.8, 1.2); // ~9 s apart when calm, a continuous stream at rush hour
@@ -1041,7 +1061,7 @@ function spawner(dt) { // arrivals: 70% strangers (some just pass by on Rue du C
     if (due.length) { pick(due).timer = 0; return; } // updateAI brings them in
   }
   if (cars.filter(c => c.kind === 'foreign').length > 45) return;
-  const c = addCar('foreign', pick(AI_COLORS), pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
+  const c = !cars.some(o => o.seat) && Math.random() < 0.15 ? addSeat() : addCar('foreign', pick(AI_COLORS), pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
   if (!enterStreet(c, Math.random() < 0.3 ? pick([0, -1]) : 1)) { scene.remove(c.mesh); cars.pop(); } // 30%: just passing on Rue du Centre
 }
 
@@ -1478,6 +1498,7 @@ function sync(dt) {
     c.mesh.position.set(c.x, 0, c.z);
     c.mesh.rotation.y = c.ang;
     c.body.position.y = Math.abs(c.speed) > 0.3 ? Math.sin(elapsed * 17 + c.id) * 0.02 : 0;
+    if (c.flames) c.flames.visible = (c.flameT -= dt) > 0;
     c.marker.visible = c.kind !== 'foreign' || c.state === 'park' || c.state === 'parked';
     c.marker.position.y = c.markY + Math.sin(elapsed * 3 + c.id) * 0.12;
     if (c.kind === 'neighbour') { // a pulsing "P?" while they look for a bay; household cars in purple
@@ -1953,7 +1974,24 @@ function selfTestFamily() {
   ok(f.blink[-1].every(b => b.visible) && f.blink[1].every(b => !b.visible), 'left signal on for a bay on the left');
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { selfTestFamily, selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
+// self-check: the Seat floors it (much faster than the others), smokes and pops with flames. Returns 'ok' or throws.
+function selfTestSeat() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestSeat: ' + m); };
+  if (driving) { driving.speed = 0; actionE(); }
+  Object.assign(player, { x: 0, z: -6 });
+  const c = addSeat(), o = addCar('foreign', '#888', 'hatch');
+  for (const [q, z] of [[c, -46], [o, -46]]) Object.assign(q, { state: 'drive', x: z, z: 0, ang: 0, speed: 0, wantsSlot: false, slot: null });
+  o.z = 99; // out of the way
+  const s0 = smoke.filter(q => q.m.visible).length;
+  window.__game.step(1);
+  ok(c.speed > 10 && c.speed >= c.cruise - 0.5, `the Seat floors it (${c.speed.toFixed(1)} m/s after 1 s; others manage 5)`);
+  ok(smoke.filter(q => q.m.visible).length > s0 + 10, 'black smoke when accelerating');
+  let flames = false; c.popN = 4; c.popT = 0;
+  for (let i = 0; i < 20; i++) { window.__game.step(1 / 30); flames ||= c.flames.visible; }
+  ok(flames && c.popN === 0, 'pops and bangs with flames');
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { selfTestSeat, selfTestFamily, selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -2163,11 +2201,11 @@ Object.assign(window.__game, { selfTestDriving() {
   const CARS = { bmw: buildBMW, spring: buildSpring, picasso: buildPicasso, ferrari: buildF430, z4: buildZ4, polo: buildPolo };
   const who = () => driving || player;
   const nearMine = () => cars.filter(c => c.kind === 'mine').sort((a, b) => Math.hypot(a.x - who().x, a.z - who().z) - Math.hypot(b.x - who().x, b.z - who().z))[0];
-  const stranger = type => addCar('foreign', pick(AI_COLORS), type ?? pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
+  const stranger = type => type === 'seat' ? addSeat() : addCar('foreign', pick(AI_COLORS), type ?? pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
   const HELP = {
     'credits(n = 1000)': 'ajoute n crédits (négatif pour en retirer)',
     'setCredits(n)': 'fixe les crédits à n',
-    'inconnu(type?)': "fait entrer une voiture d'inconnu dans la rue (hatch, mpv, suv, mini)",
+    'inconnu(type?)': "fait entrer une voiture d'inconnu dans la rue (hatch, mpv, suv, mini, seat : la Seat noire portugaise)",
     'inconnuGare(n = 1)': "gare n voitures d'inconnus sur des places libres",
     'videInconnus()': 'fait disparaître toutes les voitures des inconnus',
     'voisin(nom)': 'fait revenir un voisin tout de suite (Marion, Thierry, Marie-Claude, Dédé, Florence, Le père, Clément, Léa, Kévin)',
