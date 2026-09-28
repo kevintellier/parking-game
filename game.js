@@ -1799,9 +1799,11 @@ function selfTestEvents() {
   Object.assign(v, { x: 40, z: 0, ang: 0 });
   ok(pedPush(q, v) && Math.abs(q.z - (v.r + P_R)) < 1e-9, 'no gap in the middle of an SUV');
   scene.remove(v.mesh); cars.splice(cars.indexOf(v), 1);
+  Object.assign(player, { x: 0, z: 0 }); // off the sidewalks, so the baguette can't spawn right under her
   BAG.t = 0; window.__game.step(0.1); ok(baguette.visible, 'baguette appears');
   Object.assign(player, { x: baguette.position.x, z: baguette.position.z }); window.__game.step(0.1);
   ok(boostT > 0 && !baguette.visible, 'baguette picked up: speed boost');
+  Object.assign(player, { x: RED_GATE + 3, z: SW }); // near his gate: he reaches her well within his 25 s
   PA.t = 0; ok(until(60, () => slowT > 0), 'father farts next to Erika: slowdown');
   ok(until(60, () => PA.phase === 'home'), 'father back home'); slowT = 0;
   Object.assign(player, { x: 48, z: 5.5 }); PA.t = 0;
