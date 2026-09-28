@@ -16,6 +16,8 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[(Math.random() * a.length) | 0];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const $ = id => document.getElementById(id);
+const nb = t => t.replace(/ ([!?;»])/g, '\u202f$1').replace(/« /g, '«\u202f').replace(/ :/g, '\u00a0:'); // French typography: no line break before ! ? ; : »
+const fr = (v, d = 0) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }); // 12 345,6
 
 // ───────────────────────── street layout (street runs along X, sides are z>0 (s=1) and z<0 (s=-1))
 // one-way street: a single lane at z=0, traffic always flows toward +x (cars turn in from Rue du Centre at x=-XS, out onto the cross street at +XS)
@@ -677,7 +679,7 @@ const SFX = {
 };
 const nearPlayer = (x, z, r = 28) => { const w = driving || player; return Math.hypot(x - w.x, z - w.z) < r; };
 let toastT;
-function toast(msg) { $('toast').textContent = msg; $('toast').classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => $('toast').classList.remove('on'), 2600); }
+function toast(msg) { $('toast').textContent = nb(msg); $('toast').classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => $('toast').classList.remove('on'), 2600); }
 
 // ───────────────────────── cars
 const CAR_TYPES = {
@@ -905,7 +907,7 @@ function leaveStreet(c) {
   if (c.kind === 'foreign') { scene.remove(c.mesh); cars.splice(cars.indexOf(c), 1); return; }
   if (c.kind === 'neighbour' && c.wantsSlot) { // drove the whole street without finding a bay
     score = Math.max(0, score - NEIGHBOUR_FINE); SFX.fine();
-    toast(`${c.name} couldn't park in the street! −${NEIGHBOUR_FINE}`);
+    toast(`${c.name} n’a pas trouvé de place dans la rue ! −${NEIGHBOUR_FINE}`);
   }
   c.state = 'away'; c.timer = c.kind === 'neighbour' ? rand(90, 180) : rand(15, 60); c.mesh.visible = false;
 }
@@ -919,8 +921,8 @@ function finishPark(c) {
   const s = c.slot;
   Object.assign(c, { state: 'parked', x: s.x, z: s.z, ang: parkedAng(s), speed: 0, timer: c.kind === 'foreign' ? rand(45, 110) : rand(40, 150) });
   puff(s.x - Math.cos(c.ang) * c.len / 2, s.z, 4, '#cfcfcf');
-  if (c.kind === 'foreign') { SFX.fine(); score = Math.max(0, score - STRANGER_FINE); floatText(`Stranger parked! −${STRANGER_FINE}`, s.x, 3.4, s.z, '#ff8fa3'); }
-  else floatText(`${c.name} is home`, s.x, 3.4, s.z, '#7ff0e4');
+  if (c.kind === 'foreign') { SFX.fine(); score = Math.max(0, score - STRANGER_FINE); floatText(`Un inconnu s’est garé ! −${STRANGER_FINE}`, s.x, 3.4, s.z, '#ff8fa3'); }
+  else floatText(`${c.name} est de retour`, s.x, 3.4, s.z, '#7ff0e4');
   if (c.dented) { c.broken = true; floatText('Clément : Encore en panne !', s.x, 4.2, s.z, '#7ff0e4'); callMechanic(c); } // fixed, then broken again next time
 }
 function startLeave(c) {
@@ -936,7 +938,7 @@ function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off h
   const dx = c.x - player.x, dz = c.z - player.z, d = Math.hypot(dx, dz) || 1;
   c.slot.ai = null; c.slot = null; c.state = 'drive'; c.speed = 0;
   c.kick = 1; c.kx = dx / d * 3.5; c.kz = dz / d * 3.5; belly = 1;
-  SFX.boing(); floatText('Boing!', player.x, 3, player.z, '#ffd166');
+  SFX.boing(); floatText('Boing !', player.x, 3, player.z, '#ffd166');
 }
 // nudge the blocker sideways (either side), else along the lane; the player on foot always gives way
 function shoveAside(c, o, dt) {
@@ -968,7 +970,7 @@ function updateAI(c, dt) {
       return;
     case 'leave':
       if (followPath(c, dt, t => t * t)) {
-        if (c.kind === 'foreign') { floatText('Spot free!', c.slot.x, 3.2, c.slot.z, '#8ef0a8'); SFX.free(); }
+        if (c.kind === 'foreign') { floatText('Place libérée !', c.slot.x, 3.2, c.slot.z, '#8ef0a8'); SFX.free(); }
         c.slot.ai = null; c.slot = null; c.state = 'drive'; c.wantsSlot = false; c.speed = 4;
       }
       return;
@@ -1008,7 +1010,7 @@ function updateAI(c, dt) {
   if (gap < 0.3 && c.honkT <= 0 && (who === player || who?.kind === 'mine' || who?.chat > 0 || bins.includes(who))) {
     c.honkT = rand(3, 5);
     if (nearPlayer(c.x, c.z)) SFX.honk();
-    floatText(pick(['BEEP!', 'Pouet!', 'HONK!']), c.x, 3, c.z, '#ffd166');
+    floatText(pick(['Tût tût !', 'Pouet pouet !', 'Tuuut !']), c.x, 3, c.z, '#ffd166');
   }
 }
 // 0 = calm, 1 = rush hour: ~2.5 min waves (short rushes, longer calm spells) that grow stronger over the first minutes
@@ -1056,7 +1058,7 @@ function drive(c, dt) {
   else { // blocked: slide out of whatever it hit (full move, pure turn, straight on, stay put pushed out); the speed lost is the impact
     const p = [m, pose(ang, 0), pose(c.ang, d), pose(c.ang, 0)].map(p => unstick(c, p)).find(fits) || pose(c.ang, 0);
     const v = ((p.x - c.x) * Math.cos(p.ang) - (p.z - c.z) * Math.sin(p.ang)) / dt * Math.sign(c.speed);
-    if (Math.abs(c.speed) - Math.max(0, v) > 3) { puff(m.x, m.z, 3, '#ddd'); floatText('Bump!', c.x, 2.8, c.z, '#ffd166'); c.speed *= -0.2; }
+    if (Math.abs(c.speed) - Math.max(0, v) > 3) { puff(m.x, m.z, 3, '#ddd'); floatText('Boum !', c.x, 2.8, c.z, '#ffd166'); c.speed *= -0.2; }
     else c.speed = Math.sign(c.speed) * Math.min(Math.abs(c.speed), Math.max(v, 1.5)); // keeps ~1.5 m/s of wheel speed so it can still steer off
     Object.assign(c, p);
   }
@@ -1084,7 +1086,7 @@ function truckShove(c, x, z, ang) {
   const dx = x - c.x, dz = z - c.z;
   for (const o of hit) {
     o.x += dx; o.z += dz;
-    if ((o.shoved = (o.shoved || 0) + Math.hypot(dx, dz)) > 1) { startLeave(o); floatText('Shoved out!', o.x, 3.2, o.z, '#ffd166'); SFX.honk(); }
+    if ((o.shoved = (o.shoved || 0) + Math.hypot(dx, dz)) > 1) { startLeave(o); floatText('Délogé !', o.x, 3.2, o.z, '#ffd166'); SFX.honk(); }
   }
   return true;
 }
@@ -1153,10 +1155,10 @@ const binSlot = () => {
 function actionE() {
   if (!driving) {
     const c = nearestMine();
-    if (c && binsInHand) return toast('Put the bin down first (B)');
+    if (c && binsInHand) return toast('Pose d’abord la poubelle (B)');
     if (c?.broken) {
       SFX.crank(); floatText('Rrr… rrr… elle démarre pas !', c.x, 3, c.z, '#ffd166');
-      const msg = ST.car === c ? 'Stéphane the mechanic is on it' : ST.car ? 'Stéphane is busy, he comes right after' : "It won't start! Stéphane the mechanic is coming";
+      const msg = ST.car === c ? 'Stéphane le mécano s’en occupe' : ST.car ? 'Stéphane est occupé, il arrive juste après' : 'Elle ne démarre pas ! Stéphane le mécano arrive';
       callMechanic(c); return toast(msg);
     }
     if (c) {
@@ -1167,7 +1169,7 @@ function actionE() {
     return;
   }
   const c = driving;
-  if (Math.abs(c.speed) > 2) return toast('Slow down before getting out!');
+  if (Math.abs(c.speed) > 2) return toast('Ralentis avant de descendre !');
   const t = tidy(c);
   if (t) Object.assign(c, t);
   // exits: beside each collision circle front→back (driver door first), then behind / ahead, then further out
@@ -1178,10 +1180,10 @@ function actionE() {
     player.x = x; player.z = z; c.speed = 0; driving = null; person.g.visible = true; SFX.door();
     if (!slots.some(s => covers(c, s))) return sendHome(c);
     const n = slots.filter(s => covers(c, s) && (!s.ai || s.ai.state === 'drive')).length;
-    if (n) { floatText(n > 1 ? `${n} spots blocked!` : 'Spot secured!', c.x, c.markY + 0.4, c.z, '#ffd166'); puff(c.x, c.z, 4 + n, '#fff3c4'); SFX.block(); }
+    if (n) { floatText(n > 1 ? `${n} places bloquées !` : 'Place bloquée !', c.x, c.markY + 0.4, c.z, '#ffd166'); puff(c.x, c.z, 4 + n, '#fff3c4'); SFX.block(); }
     return;
   }
-  toast('No room to get out here');
+  toast('Pas la place de descendre ici');
 }
 // a car left on the road goes back to where it was parked (or the nearest free spot if that's been taken)
 function sendHome(c) {
@@ -1189,11 +1191,11 @@ function sendHome(c) {
   const spots = slots.flatMap(s => [s.x, s.x + SLOT_LEN / 2].map(x => ({ x, z: parkZ(c, s.side), ang: 0 })))
     .sort((a, b) => Math.hypot(a.x - c.rest.x, a.z - c.rest.z) - Math.hypot(b.x - c.rest.x, b.z - c.rest.z));
   const t = [c.rest, ...spots].find(t => (t === c.rest || slots.some(s => covers({ ...c, ...t }, s))) && ok(t));
-  if (!t) return toast('Your car is blocking the road!');
+  if (!t) return toast('Ta voiture bloque la rue !');
   puff(c.x, c.z, 8, '#fff3c4');
   Object.assign(c, t);
   puff(c.x, c.z, 8, '#fff3c4');
-  floatText('Back to its spot', c.x, c.markY + 0.4, c.z, '#ffd166');
+  floatText('Retour à sa place', c.x, c.markY + 0.4, c.z, '#ffd166');
   pushOut(player);
 }
 function actionB() {
@@ -1201,16 +1203,16 @@ function actionB() {
   const b = binsInHand;
   if (!b) {
     const n = nearBin();
-    if (!n) return toast('Walk up to a bin to grab it');
+    if (!n) return toast('Approche-toi d’une poubelle pour la prendre');
     bins.splice(bins.indexOf(n), 1); n.slot = null; binsInHand = n; SFX.door();
     return;
   }
   const side = Math.sign(b.z), walkway = Math.abs(b.z) > CURB_Z, s = walkway ? null : binSlot(), x = s ? s.x : walkway ? sidewalkSpot(b.x, side) : null;
-  if (x === null) return toast(walkway ? 'No room for the bin here' : 'Push the bin into a free spot or onto the sidewalk');
+  if (x === null) return toast(walkway ? 'Pas de place pour la poubelle ici' : 'Pousse la poubelle sur une place libre ou sur le trottoir');
   binsInHand = null;
   putBin(b, x, s ? s.z + s.side * 0.35 : side * BIN_Z, s);
   puff(b.x, b.z, 5, '#fff3c4');
-  if (s) { floatText('Spot blocked!', b.x, 2.8, b.z, '#ffd166'); SFX.block(); }
+  if (s) { floatText('Place bloquée !', b.x, 2.8, b.z, '#ffd166'); SFX.block(); }
   pushOut(player);
 }
 // Erika's driveway gate: no bay in front of it, new cars are delivered there and she parks them herself
@@ -1218,8 +1220,8 @@ const GARAGE_X = GATES[-1][1];
 const garageBusy = me => cars.some(o => o !== me && o.state !== 'away' && Math.abs(o.x - GARAGE_X) < 4.5 && o.z < -2.5);
 function buyCar() {
   const price = carPrice();
-  if (score < price) return toast(`A car costs ${price} credits`);
-  if (garageBusy()) return toast('Move the car in front of your garage first');
+  if (score < price) return toast(`Une voiture coûte ${fr(price)} crédits`);
+  if (garageBusy()) return toast('Déplace d’abord la voiture garée devant ton garage');
   score -= price; carsOwned++;
   deliver([buildBMW, buildSpring, buildPicasso][carsOwned - 2]?.(ENV), MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length]);
 }
@@ -1229,25 +1231,25 @@ function deliver(m, color) {
   Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0, broken: Math.random() < 0.35 });
   if (m?.exhaust) Object.assign(c, { exhaust: m.exhaust, smoky: true, smokeT: 0 });
   puff(c.x, c.z, 10, '#fff3c4');
-  floatText('New car delivered!', c.x, 3.4, c.z, '#ffd166');
-  toast('Your new car is waiting in front of your garage — go and park it');
+  floatText('Voiture livrée !', c.x, 3.4, c.z, '#ffd166');
+  toast('Ta nouvelle voiture t’attend devant ton garage : va la garer !');
   SFX.buy();
   pushOut(player);
 }
 const FERRARI_PRICE = 10000;
 let ferrariOwned = false;
 function buyFerrari() {
-  if (ferrariOwned) return toast('You already own the Ferrari');
-  if (score < FERRARI_PRICE) return toast(`The Ferrari costs ${FERRARI_PRICE} credits`);
-  if (garageBusy()) return toast('Move the car in front of your garage first');
+  if (ferrariOwned) return toast('Tu as déjà la Ferrari');
+  if (score < FERRARI_PRICE) return toast(`La Ferrari coûte ${fr(FERRARI_PRICE)} crédits`);
+  if (garageBusy()) return toast('Déplace d’abord la voiture garée devant ton garage');
   score -= FERRARI_PRICE; ferrariOwned = true;
   deliver(buildF430(ENV));
 }
 const TRUCK_PRICE = 5000;
 let truckOwned = false;
 function buyTruck() {
-  if (truckOwned) return toast('You already own the truck');
-  if (score < TRUCK_PRICE) return toast(`The truck costs ${TRUCK_PRICE} credits`);
+  if (truckOwned) return toast('Tu as déjà le camion');
+  if (score < TRUCK_PRICE) return toast(`Le camion coûte ${fr(TRUCK_PRICE)} crédits`);
   // delivered across two adjacent free bays (same group), nearest the player
   const from = driving || player, free = s => s && !s.ai && (!s.block || s.block === player);
   let best = null, bd = Infinity;
@@ -1255,14 +1257,14 @@ function buyTruck() {
     const x = s.x + SLOT_LEN / 2, d = Math.hypot(x - from.x, s.z - from.z);
     if (d < bd && free(s) && free(slots.find(q => q.side === s.side && Math.abs(q.x - s.x - SLOT_LEN) < 0.1))) { bd = d; best = s; }
   }
-  if (!best) return toast('The truck needs two free spots in a row');
+  if (!best) return toast('Le camion a besoin de deux places libres à la suite');
   score -= TRUCK_PRICE; truckOwned = true;
   const m = buildTruck(ENV), c = addCar('mine', null, null, m);
   Object.assign(c, { x: best.x + SLOT_LEN / 2, z: parkZ(c, best.side), ang: 0, truck: true, exhaust: m.exhaust,
     acc: 3.5, top: 9, turn: 0.3, pivot: 2.8, smokeT: 0, rumbleT: 0, markY: 4.6 });
   c.marker.scale.setScalar(1.4);
   puff(c.x, c.z, 14, '#fff3c4');
-  floatText('Truck delivered!', c.x, 5, c.z, '#ffd166');
+  floatText('Camion livré !', c.x, 5, c.z, '#ffd166');
   SFX.buy();
   pushOut(player);
 }
@@ -1297,7 +1299,7 @@ function buildMeter(x, s) { // « horodateur »: grey pay station on a post, scr
 function buyMeter() {
   const grp = meterGroup(), price = meterPrice();
   if (!grp) return toast('Toutes les places ont déjà leur borne');
-  if (score < price) return toast(`Une borne coûte ${price} crédits`);
+  if (score < price) return toast(`Une borne coûte ${fr(price)} crédits`);
   score -= price;
   const x = (grp[0].x + grp.at(-1).x) / 2, s = grp[0].side;
   meters.push({ x, z: s * (CURB_Z + 0.3), g: buildMeter(x, s) });
@@ -1317,7 +1319,7 @@ const baysPrice = () => 3000 * 2 ** baysBought;
 function buyBays() {
   const site = BAY_SITES[baysBought], price = baysPrice();
   if (!site) return toast('Plus de places à acheter dans la rue');
-  if (score < price) return toast(`Les nouvelles places coûtent ${price} crédits`);
+  if (score < price) return toast(`Les nouvelles places coûtent ${fr(price)} crédits`);
   score -= price; baysBought++;
   const [s, xs] = site, x = (xs[0] + xs.at(-1)) / 2;
   SLOT_XS[s].push(...xs); SLOT_XS[s].sort((a, b) => a - b); resnap();
@@ -1333,11 +1335,12 @@ const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyZ: 'up', KeyS: 'down', ArrowDown:
 addEventListener('keydown', e => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
   if (e.repeat || !started) return;
+  if (e.code === 'KeyH' || helpOn() && (e.code === 'KeyP' || e.code === 'Escape')) return help(!helpOn());
   if (e.code === 'KeyP') { paused = !paused; $('paused').classList.toggle('hidden', !paused); }
   if (paused) return;
   if (e.code === 'KeyE') actionE();
   if (e.code === 'KeyB') actionB();
-  if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Sound off' : 'Sound on'); }
+  if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Son coupé' : 'Son activé'); }
   if (e.code === 'Digit1' || e.code === 'Numpad1') buyCar();
   if (e.code === 'Digit2' || e.code === 'Numpad2') buyTruck();
   if (e.code === 'Digit3' || e.code === 'Numpad3') buyFerrari();
@@ -1390,42 +1393,43 @@ let hudT = 0, wasProtected = false, trafficLevel = 0;
 function hud(dt) {
   if ((hudT -= dt) > 0) return;
   hudT = 0.1;
-  $('score').textContent = Math.floor(score);
-  $('rate').textContent = `+${rate.toFixed(1)} /s` + (meterRate ? ` (bornes +${meterRate.toFixed(1)})` : '');
+  $('score').textContent = fr(Math.floor(score));
+  $('rate').textContent = `+${fr(rate, 1)} /s` + (meterRate ? ` (bornes +${fr(meterRate, 1)})` : '');
   $('foreign').textContent = foreignN;
   $('neigh').textContent = cars.filter(c => c.kind === 'neighbour' && c.state === 'parked').length;
   $('held').textContent = slots.filter(s => s.block && s.block !== player).length;
   $('banner').classList.toggle('on', foreignN === 0);
-  $('bmult').textContent = `×${+mult.toFixed(2)}`;
-  if (foreignN === 0 && !wasProtected) toast('No strangers left — credits ×3!');
+  $('bmult').textContent = `×${mult.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}`;
+  if (foreignN === 0 && !wasProtected) toast('Plus aucun inconnu garé : crédits ×3 !');
   wasProtected = foreignN === 0;
-  $('carPrice').textContent = carPrice();
+  $('carPrice').textContent = fr(carPrice());
   $('buyCar').disabled = score < carPrice();
-  $('truckPrice').textContent = truckOwned ? 'Owned' : TRUCK_PRICE;
+  $('truckPrice').textContent = truckOwned ? 'Acheté' : fr(TRUCK_PRICE);
   $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
-  $('ferrariPrice').textContent = ferrariOwned ? 'Owned' : FERRARI_PRICE;
+  $('ferrariPrice').textContent = ferrariOwned ? 'Achetée' : fr(FERRARI_PRICE);
   $('buyFerrari').disabled = ferrariOwned || score < FERRARI_PRICE;
   const meterLeft = meterGroup();
-  $('meterPrice').textContent = meterLeft ? meterPrice() : 'Complet';
+  $('meterPrice').textContent = meterLeft ? fr(meterPrice()) : 'Complet';
   $('buyMeter').disabled = !meterLeft || score < meterPrice();
-  $('baysPrice').textContent = BAY_SITES[baysBought] ? baysPrice() : 'Complet';
+  $('baysPrice').textContent = BAY_SITES[baysBought] ? fr(baysPrice()) : 'Complet';
   $('buyBays').disabled = !BAY_SITES[baysBought] || score < baysPrice();
-  $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''}${ferrariOwned ? ' · the Ferrari' : ''} owned${meters.length ? ` · 🅿️ ${meters.length}` : ''}`)
-    + (boostT > 0 ? ' · 🥖 fast!' : '') + (slowT > 0 ? ' · 💨 slowed' : '');
+  $('inv').textContent = nb((binsInHand ? '🗑️ Poubelle en main · B pour la poser' : `À toi : ${carsOwned} voiture${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · le camion' : ''}${ferrariOwned ? ' · la Ferrari' : ''}${meters.length ? ` · 🅿️ ${meters.length}` : ''}`)
+    + (boostT > 0 ? ' · 🥖 à fond !' : '') + (slowT > 0 ? ' · 💨 ralentie' : ''));
   const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.7 ? 1 : 2;
-  if (tl !== trafficLevel) { if (tl === 2) toast('Rush hour! Cars everywhere'); else if (tl === 0 && trafficLevel > 0) toast('Traffic is calming down'); trafficLevel = tl; }
-  $('traffic').textContent = ['calm', 'busy', 'rush hour'][tl];
+  if (tl !== trafficLevel) { if (tl === 2) toast('Heure de pointe ! Des voitures partout'); else if (tl === 0 && trafficLevel > 0) toast('La circulation se calme'); trafficLevel = tl; }
+  $('traffic').textContent = ['calme', 'chargée', 'heure de pointe'][tl];
   $('trafficDot').style.background = ['#06d6a0', '#ffd166', '#ef476f'][tl];
   let p = '';
   const mine = !driving && nearestMine();
   if (driving) { // count what the E-snap will actually block
     const n = slots.filter(s => covers({ ...driving, ...tidy(driving) }, s)).length;
-    p = n ? `E — leave the ${driving.truck ? 'truck' : 'car'} here (${n} spot${n > 1 ? 's' : ''} blocked)` : 'E — get out (it goes back to its spot)';
+    p = n ? `E — laisser ${driving.truck ? 'le camion' : 'la voiture'} ici (${n} place${n > 1 ? 's bloquées' : ' bloquée'})` : 'E — descendre (retour à sa place)';
   }
-  else if (binsInHand) p = Math.abs(binsInHand.z) > CURB_Z ? 'B — leave the bin on the sidewalk' : binSlot() ? 'B — block this spot with the bin' : 'Push the bin into a free spot or onto the sidewalk';
-  else if (mine) p = `E — drive ${mine.truck ? 'the truck' : 'this car'}`;
-  else if (nearBin()) p = 'B — pick up bin';
-  $('prompt').textContent = started ? p : '';
+  else if (binsInHand) p = Math.abs(binsInHand.z) > CURB_Z ? 'B — laisser la poubelle sur le trottoir' : binSlot() ? 'B — bloquer cette place avec la poubelle' : 'Pousse la poubelle sur une place libre ou sur le trottoir';
+  else if (mine) p = `E — conduire ${mine.truck ? 'le camion' : 'cette voiture'}`;
+  else if (nearBin()) p = 'B — prendre la poubelle';
+  $('prompt').textContent = started ? nb(p) : '';
+  coach();
   try { if (Math.floor(best) > (+localStorage.getItem('parkingGuardBest') || 0)) localStorage.setItem('parkingGuardBest', Math.floor(best)); } catch {}
 }
 function sync(dt) {
@@ -1866,7 +1870,7 @@ function selfTestEconomy() {
   ok(t.meter && meters.length === 2, 'the nearest group, a new one, gets the next meter');
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents })); // after __game exists
+queueMicrotask(() => Object.assign(window.__game, { selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -1889,8 +1893,80 @@ function setup() {
   scoring(0); // initialise HUD counters before the first tick
 }
 setup();
-$('best').textContent = best ? `Best score: ${Math.floor(best)}` : '';
-$('start').onclick = () => { started = true; try { actx = new AudioContext(); } catch {} $('title').classList.add('hidden'); toast('Walk to your yellow car and press E'); };
+$('best').textContent = best ? nb(`Meilleur score : ${fr(Math.floor(best))}`) : '';
+$('start').onclick = () => {
+  started = true; try { actx = new AudioContext(); } catch {} $('title').classList.add('hidden', 'ingame');
+  if (tutoI < 0) toast('Va jusqu’à ta voiture jaune et appuie sur E');
+};
+
+// ───────────────────────── tutorial: a coach panel shows one step at a time; a step is done when the game state says so
+let tutoI = -1, tutoDone = false, tutoFrom = null; // tutoI: current step, -1 = off; tutoFrom: where Erika stood when it began
+try { tutoDone = !!localStorage.getItem('parkingGuardTuto'); } catch {}
+const mineCars = () => cars.filter(c => c.kind === 'mine');
+const moved = c => c.rest && Math.hypot(c.x - c.rest.x, c.z - c.rest.z) > 2 && slots.some(s => s.block === c); // driven elsewhere and left in a bay
+const TUTO = [ // [title, text (html, or a function), done?]
+  ['Marche un peu', 'Tu es Erika, avec l’anneau jaune. Déplace-toi avec <kbd>ZQSD</kbd> ou les <kbd>flèches</kbd>.', () => driving || Math.hypot(player.x - tutoFrom.x, player.z - tutoFrom.z) > 4],
+  ['Monte dans ta voiture', 'Retourne à ta voiture jaune et appuie sur <kbd>E</kbd> pour monter. Ensuite, <kbd>ZQSD</kbd> ou les <kbd>flèches</kbd> pour conduire, <kbd>Espace</kbd> pour freiner.', () => driving],
+  ['Bloque une autre place', 'Roule jusqu’à une place libre (les rectangles blancs qui clignotent) et appuie sur <kbd>E</kbd> : la voiture s’y range et tu descends : « Place bloquée ! » Garée à cheval sur la ligne, elle en bloque deux.', () => !driving && mineCars().some(moved)],
+  ['Attrape une poubelle', 'Les poubelles aussi bloquent une place. Approche-toi d’une poubelle sur le trottoir et appuie sur <kbd>B</kbd>.', () => binsInHand],
+  ['Pousse-la sur une place', 'Pousse-la sur une place libre et appuie sur <kbd>B</kbd> pour la poser. Un compte à rebours apparaît : à zéro, Valérie, la voisine rousse, vient la remettre sur le trottoir.', () => bins.some(b => b.slot)],
+  ['Achète une voiture', () => `Tu gagnes des crédits en continu, trois fois plus vite quand aucun inconnu n’est garé. La boutique est en bas à droite : achète une voiture (touche <kbd>1</kbd>) dès que tu as ${fr(carPrice())} crédits${score < carPrice() ? ` (encore ${fr(Math.ceil(carPrice() - score))})` : ', c’est bon !'}.`, () => carsOwned > 1],
+  ['Gare ta nouvelle voiture', 'Elle est livrée devant ton garage, mais c’est à toi de la garer : monte (<kbd>E</kbd>), trouve une place libre et laisse-la (<kbd>E</kbd>). Si elle ne démarre pas, Stéphane le mécano arrive.', () => mineCars().slice(1).some(moved)],
+  ['Qui est qui dans la rue', '<ul><li>Les <b>inconnus</b> (rouge) : −10 chacun quand ils se garent.</li><li>Les <b>voisins</b> (turquoise) doivent trouver une place, sinon −100.</li>'
+    + '<li><b>Jack</b> garde parfois deux places pour toi avec sa voiture beige.</li><li><b>Le père</b> te court après pour péter à côté de toi : il te ralentit. Sème-le !</li>'
+    + '<li><b>Ta femme</b> emprunte une voiture et la ramène devant le garage.</li><li>Les <b>baguettes</b> font marcher plus vite. Gare-toi avant l’<b>heure de pointe</b> !</li></ul><kbd>H</kbd> pour revoir l’aide. Bonne chance !'],
+];
+function tuto(i) {
+  tutoI = i >= 0 && i < TUTO.length ? i : -1; tutoFrom = { x: player.x, z: player.z };
+  if (tutoI < 0) { tutoDone = true; try { localStorage.setItem('parkingGuardTuto', 1); } catch {} }
+  $('coachText').dataset.t = '';
+  if (tutoI > 0) $('coach').animate([{ transform: 'scale(1.05)' }, { transform: 'scale(1)' }], 300);
+}
+function coach() { // called from hud(): advance when the step is done, refresh the text
+  const st = TUTO[tutoI], last = tutoI === TUTO.length - 1;
+  $('coach').classList.toggle('hidden', !st || !started);
+  $('shop').classList.toggle('glow', !!st && st[0] === 'Achète une voiture');
+  if (!st || !started) return;
+  if (st[2]?.()) { SFX.free(); return tuto(tutoI + 1); }
+  const t = nb(typeof st[1] === 'function' ? st[1]() : st[1]);
+  if ($('coachText').dataset.t === t) return;
+  $('coachText').dataset.t = t; $('coachText').innerHTML = t;
+  $('coachTitle').textContent = nb(st[0]); $('coachStep').textContent = `Tutoriel · ${tutoI + 1}/${TUTO.length}`;
+  $('coachNext').textContent = last ? 'Terminer' : 'Passer'; $('coachQuit').hidden = last;
+}
+const click = f => e => { f(); e.currentTarget.blur(); }; // blur: Space (brake) must not press the button again
+$('coachNext').onclick = click(() => tuto(tutoI + 1));
+$('coachQuit').onclick = click(() => tuto(-1));
+$('startTuto').onclick = () => { tuto(0); $('start').click(); };
+if (tutoDone) { $('start').classList.remove('alt'); $('startTuto').classList.add('alt'); $('startTuto').before($('start')); } // already done: « Jouer » first
+// H: the title card again as an in-game help screen (pauses the game)
+const helpOn = () => started && !$('title').classList.contains('hidden');
+const help = on => { paused = on; $('title').classList.toggle('hidden', !on); $('paused').classList.add('hidden'); };
+$('resume').onclick = click(() => help(false));
+$('retuto').onclick = click(() => { help(false); tuto(0); });
+// self-check: the plain start leaves the tutorial off; each step advances when Erika actually does it. Returns 'ok' or throws.
+function selfTestTuto() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestTuto: ' + m); };
+  const at = (i, m) => { coach(); ok(tutoI === i, `${m} (step ${tutoI})`); };
+  const park = c => { const q = slots.find(q => bayFree(q) && Math.abs(q.x - c.x) > 4 && carPen(c, q.x, parkZ(c, q.side), 0) === 0); Object.assign(c, { x: q.x, z: parkZ(c, q.side), ang: 0, speed: 0 }); actionE(); computeBlocks(); };
+  const getIn = c => { Object.assign(player, { x: c.x, z: c.z - Math.sign(c.z) * (c.r + 0.5) }); actionE(); ok(driving === c, 'get in'); };
+  let saved = null; try { saved = localStorage.getItem('parkingGuardTuto'); } catch {}
+  ok(tutoI === -1, 'off after a plain start');
+  if (driving) { driving.speed = 0; actionE(); }
+  W.wait = PA.t = chatT = BAG.t = 1e9;
+  tuto(0); at(0, 'starts at step 1');
+  player.x += 5; at(1, 'walked');
+  getIn(mineCars()[0]); at(2, 'drives');
+  park(driving); ok(!driving, 'got out'); at(3, 'car left in another bay');
+  const b = bins.find(q => !q.slot); Object.assign(player, { x: b.x, z: Math.sign(b.z) * SW }); actionB(); at(4, 'bin picked up');
+  const s = slots.find(q => bayFree(q) && !cars.some(c => c.state !== 'away' && Math.hypot(c.x - q.x, c.z - q.z) < 5));
+  Object.assign(player, { x: s.x - 0.9, z: s.z, ang: 0 }); person.g.rotation.y = 0; window.__game.step(0.1); actionB(); at(5, 'bin in a bay');
+  score = 1e5; buyCar(); at(6, 'car bought');
+  const n = cars.at(-1); n.broken = false; getIn(n); park(n); at(7, 'new car parked');
+  $('coachNext').click(); ok(tutoI === -1 && tutoDone, 'finished');
+  try { if (saved === null) localStorage.removeItem('parkingGuardTuto'); } catch {}
+  return 'ok';
+}
 
 let last = performance.now(), timeScale = 1;
 function frame(now) {

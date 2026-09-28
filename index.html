@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -33,19 +33,38 @@
   #shop .price { color: var(--accent); }
   #inv { font-size: 14px; opacity: .85; text-align: center; }
   #help { left: 16px; bottom: 16px; padding: 10px 14px; font-size: 13px; line-height: 1.9; opacity: .9; }
-  #prompt { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); padding: 8px 18px; border-radius: 999px; background: rgba(255,209,102,.95); color: #2a1f05; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none; }
+  #prompt { width: max-content; max-width: calc(100vw - 72px); text-align: center; position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); padding: 8px 18px; border-radius: 999px; background: rgba(255,209,102,.95); color: #2a1f05; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none; }
   #prompt:empty { display: none; }
-  #toast { position: fixed; top: 140px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #toast { width: max-content; max-width: calc(100vw - 72px); text-align: center; position: fixed; top: 140px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 12px; background: var(--glass); border: 1px solid var(--line); opacity: 0; transition: opacity .3s; pointer-events: none; }
   #toast.on { opacity: 1; }
   .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(15,22,34,.55), rgba(15,22,34,.85)); }
   .overlay.hidden { display: none; }
-  .card { max-width: 560px; margin: 16px; padding: 28px 32px; text-align: center; border-radius: 22px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
-  .card h1 { margin: 0 0 4px; font-size: 44px; color: var(--accent); }
-  .card h2 { margin: 0 0 18px; font-weight: 400; font-size: 18px; opacity: .8; }
-  .card p { line-height: 1.55; opacity: .92; text-align: left; }
-  .card .legend { display: flex; gap: 18px; justify-content: center; margin: 14px 0; font-size: 14px; }
-  .card button { font: 700 20px 'Fredoka', sans-serif; padding: 12px 40px; border: 0; border-radius: 999px; background: var(--accent); color: #2a1f05; cursor: pointer; box-shadow: 0 6px 24px rgba(255,209,102,.4); }
+  .card { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.3) transparent; box-sizing: border-box; max-width: 660px; max-height: calc(100vh - 32px); overflow-y: auto; margin: 16px; padding: 24px 28px; text-align: center; border-radius: 22px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .card h1 { margin: 0 0 2px; font-size: 40px; color: var(--accent); }
+  .card h2 { margin: 0 0 12px; font-weight: 400; font-size: 18px; opacity: .8; }
+  .card h3 { margin: 14px 0 6px; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); text-align: left; }
+  .card p, .card li { line-height: 1.45; opacity: .92; text-align: left; font-size: 15px; }
+  .card p { margin: 0; }
+  .card ul { margin: 0; padding-left: 18px; }
+  .card li { margin: 3px 0; }
+  .card .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0 22px; }
+  .card ul.keys { list-style: none; padding: 0; }
+  .card kbd, #coach kbd { font: 600 12px 'Fredoka', sans-serif; background: rgba(255,255,255,.15); border-radius: 5px; padding: 1px 6px; }
+  .card .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; margin: 14px 0; font-size: 14px; }
+  .card .btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .card button { font: 700 19px 'Fredoka', sans-serif; padding: 11px 30px; border: 2px solid var(--accent); border-radius: 999px; background: var(--accent); color: #2a1f05; cursor: pointer; box-shadow: 0 6px 24px rgba(255,209,102,.4); }
+  .card button.alt { background: transparent; color: var(--txt); box-shadow: none; }
   .card button:hover { filter: brightness(1.08); }
+  #title.ingame #start, #title.ingame #startTuto, #title:not(.ingame) #resume, #title:not(.ingame) #retuto { display: none; }
+  #coach { top: 140px; left: 16px; width: min(300px, calc(100vw - 64px)); padding: 12px 16px 14px; font-size: 15px; line-height: 1.45; border-color: rgba(255,209,102,.5); }
+  #coach.hidden { display: none; }
+  #coach h3 { margin: 2px 0 6px; font-size: 18px; color: var(--accent); }
+  #coach ul { margin: 0; padding-left: 18px; }
+  #coach .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  #coach button { font: 600 14px 'Fredoka', sans-serif; color: var(--txt); background: rgba(255,255,255,.08); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; cursor: pointer; }
+  #coach button:hover { background: rgba(255,209,102,.22); }
+  #coach #coachNext { background: var(--accent); color: #2a1f05; border-color: var(--accent); }
+  #shop.glow { box-shadow: 0 0 0 3px var(--accent), 0 0 30px rgba(255,209,102,.6); }
   #best { margin-top: 12px; font-size: 14px; opacity: .7; }
 </style>
 <script type="importmap">
@@ -56,27 +75,33 @@
 </script>
 </head>
 <body>
-<div id="scorebox" class="panel"><div class="label">Credits</div><div id="score">0</div><div id="rate">+0 /s</div></div>
+<div id="scorebox" class="panel"><div class="label">Crédits</div><div id="score">0</div><div id="rate">+0 /s</div></div>
 <div id="strip" class="panel"></div>
-<div id="banner">STREET PROTECTED <span id="bmult"></span></div>
+<div id="banner">RUE PROTÉGÉE <span id="bmult"></span></div>
 <div id="status" class="panel">
-  <div><span class="dot" style="background:var(--red)"></span>Strangers parked<b id="foreign">0</b></div>
-  <div><span class="dot" style="background:var(--teal)"></span>Neighbours home<b id="neigh">0</b></div>
-  <div><span class="dot" style="background:var(--mine)"></span>Spots you hold<b id="held">0</b></div>
-  <div><span class="dot" id="trafficDot"></span>Traffic<b id="traffic">calm</b></div>
+  <div><span class="dot" style="background:var(--red)"></span>Inconnus garés<b id="foreign">0</b></div>
+  <div><span class="dot" style="background:var(--teal)"></span>Voisins garés<b id="neigh">0</b></div>
+  <div><span class="dot" style="background:var(--mine)"></span>Places gardées<b id="held">0</b></div>
+  <div><span class="dot" id="trafficDot"></span>Circulation<b id="traffic">calme</b></div>
 </div>
 <div id="shop" class="panel">
-  <button id="buyCar"><span><kbd>1</kbd>🚗 Car</span><span class="price" id="carPrice"></span></button>
-  <button id="buyTruck"><span><kbd>2</kbd>🚚 Truck</span><span class="price" id="truckPrice"></span></button>
+  <button id="buyCar"><span><kbd>1</kbd>🚗 Voiture</span><span class="price" id="carPrice"></span></button>
+  <button id="buyTruck"><span><kbd>2</kbd>🚚 Camion</span><span class="price" id="truckPrice"></span></button>
   <button id="buyFerrari"><span><kbd>3</kbd>🏎️ Ferrari F430</span><span class="price" id="ferrariPrice"></span></button>
   <button id="buyMeter"><span><kbd>4</kbd>🅿️ Borne payante</span><span class="price" id="meterPrice"></span></button>
   <button id="buyBays"><span><kbd>5</kbd>🛣️ Places en plus</span><span class="price" id="baysPrice"></span></button>
   <div id="inv"></div>
 </div>
 <div id="help" class="panel">
-  <kbd>WASD</kbd>walk / drive &nbsp; <kbd>Space</kbd>brake<br>
-  <kbd>E</kbd>enter / leave car &nbsp; <kbd>B</kbd>pick up / put down bin<br>
-  <kbd>Wheel</kbd>zoom &nbsp; <kbd>P</kbd>pause &nbsp; <kbd>M</kbd>mute
+  <kbd>ZQSD</kbd><kbd>flèches</kbd>marcher, conduire &nbsp; <kbd>Espace</kbd>freiner<br>
+  <kbd>E</kbd>monter / descendre &nbsp; <kbd>B</kbd>prendre / poser une poubelle<br>
+  <kbd>Molette</kbd>zoom &nbsp; <kbd>P</kbd>pause &nbsp; <kbd>M</kbd>son &nbsp; <kbd>H</kbd>aide
+</div>
+<div id="coach" class="panel hidden">
+  <div class="label" id="coachStep"></div>
+  <h3 id="coachTitle"></h3>
+  <div id="coachText"></div>
+  <div class="row"><button id="coachNext">Passer</button><button id="coachQuit">Quitter le tutoriel</button></div>
 </div>
 <div id="prompt"></div>
 <div id="toast"></div>
@@ -85,16 +110,48 @@
   <div class="card">
     <h1>Parking Guard</h1>
     <h2>Rue d'Aguesseau</h2>
-    <p>You are <b>Erika</b>, and strangers keep sneaking into <i>your</i> street to park. Drive your cars into free spots and leave them there, or grab a wheelie bin from the sidewalk (<b>B</b>) and push it into a spot. Buy more cars to hold every spot (and, for the rich, the truck or a red Ferrari F430): they are delivered in front of your garage, and it's up to you to drive them into a spot.</p>
-    <p>Bins in a spot are only tolerated for a while: when the countdown runs out, <b>Valérie</b>, the red-haired neighbour, comes out and wheels them back onto the sidewalk. Old <b>Jack</b> from across the street is on your side: now and then he parks his beige car across two spots to keep them for you. Your wife, on the other hand, regularly borrows one of your cars for a drive and leaves it back in front of the garage.</p>
-    <p>You earn credits all the time, and <b>three times faster</b> when no stranger is parked. Every stranger who manages to park costs you <b>10 credits</b>. Neighbours come and go as they please, but if one of them drives through the whole street without finding a spot, it costs you <b>100 credits</b>. Traffic comes in waves: calm spells, then rush hours.</p>
-    <p>Grab the <b>baguettes</b> that sometimes show up on the sidewalk: they make you walk faster for a while. Watch out for <b>« le père »</b>, Valérie's husband across the street: when he catches you, he farts right next to you and slows you down. And if a new car won't start, <b>Stéphane</b> the mechanic comes to fix it.</p>
-    <div class="legend"><span><span class="dot" style="background:var(--mine)"></span>yours</span><span><span class="dot" style="background:var(--teal)"></span>neighbour</span><span><span class="dot" style="background:var(--red)"></span>stranger</span><span><span class="dot" style="background:#ffb703"></span>stranger incoming</span></div>
-    <button id="start">Play</button>
+    <p>Tu es <b>Erika</b>, et des inconnus viennent sans arrêt se garer dans <i>ta</i> rue. Prends les places avant eux : gares-y tes voitures, ou pousses-y les poubelles du trottoir. Mais laisse de la place aux voisins !</p>
+    <div class="cols">
+      <div>
+        <h3>🎮 Commandes</h3>
+        <ul class="keys">
+          <li><kbd>ZQSD</kbd> ou <kbd>flèches</kbd> marcher, conduire</li>
+          <li><kbd>Espace</kbd> freiner</li>
+          <li><kbd>E</kbd> monter en voiture, puis <kbd>E</kbd> sur une place pour l'y laisser : elle se range toute seule</li>
+          <li><kbd>B</kbd> prendre / poser une poubelle</li>
+          <li><kbd>1</kbd> à <kbd>5</kbd> acheter dans la boutique</li>
+          <li><kbd>P</kbd> pause · <kbd>M</kbd> son · <kbd>H</kbd> aide · molette : zoom</li>
+        </ul>
+      </div>
+      <div>
+        <h3>💰 Crédits</h3>
+        <ul>
+          <li>Tu en gagnes en continu, <b>trois fois plus</b> tant qu'aucun inconnu n'est garé.</li>
+          <li>Chaque inconnu qui se gare : <b>−10</b>.</li>
+          <li>Un voisin qui traverse toute la rue sans trouver de place : <b>−100</b>.</li>
+          <li>Boutique : voitures, camion, Ferrari F430, bornes payantes (les places rapportent plus), places en plus. Les voitures sont livrées devant ton garage : à toi de les garer.</li>
+        </ul>
+      </div>
+    </div>
+    <h3>🏘️ Qui est qui dans la rue</h3>
+    <ul>
+      <li>Le vieux <b>Jack</b>, ton voisin, est de ton côté : de temps en temps, il gare sa voiture beige à cheval sur deux places pour te les garder.</li>
+      <li><b>Valérie</b>, la voisine rousse d'en face, ne supporte pas les poubelles sur les places : à la fin du compte à rebours, elle vient les remettre sur le trottoir.</li>
+      <li><b>Le père</b>, son mari, te court après pour lâcher une caisse à côté de toi, et ça te ralentit. Sème-le assez longtemps et il rentre chez lui.</li>
+      <li><b>Ta femme</b> emprunte parfois une de tes voitures et la ramène devant le garage.</li>
+      <li><b>Stéphane</b>, le mécano, vient réparer les voitures qui ne démarrent pas.</li>
+      <li>Ramasse les <b>baguettes</b> sur le trottoir pour marcher plus vite. Des conducteurs s'arrêtent parfois pour papoter et bloquent la rue.</li>
+      <li>La circulation vient par vagues depuis la rue du Centre : moments calmes, puis heures de pointe.</li>
+    </ul>
+    <div class="legend"><span><span class="dot" style="background:var(--mine)"></span>à toi</span><span><span class="dot" style="background:var(--teal)"></span>voisin</span><span><span class="dot" style="background:var(--red)"></span>inconnu</span><span><span class="dot" style="background:#ffb703"></span>inconnu en approche</span></div>
+    <div class="btns">
+      <button id="startTuto">Jouer avec le tutoriel</button><button id="start" class="alt">Jouer</button>
+      <button id="resume">Reprendre</button><button id="retuto" class="alt">Refaire le tutoriel</button>
+    </div>
     <div id="best"></div>
   </div>
 </div>
-<div id="paused" class="overlay hidden"><div class="card"><h1>Paused</h1><h2>Press P to resume</h2></div></div>
+<div id="paused" class="overlay hidden"><div class="card"><h1>Pause</h1><h2>Appuie sur P pour reprendre</h2></div></div>
 
 <script type="module" src="game.js"></script>
 </body>
