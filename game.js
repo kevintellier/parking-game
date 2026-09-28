@@ -865,7 +865,8 @@ function startLeave(c) {
   c.dur = 3; c.t = 0; c.state = 'leave'; c.shoved = 0;
   puff(c.x - d * c.len / 2, c.z, 5, '#bdbdbd');
 }
-const PATIENCE = 8; // s a car waits behind Erika (on foot or in one of her cars) before shoving her aside
+const PATIENCE = 8, PATIENCE_ON_FOOT = 2; // s a car waits behind one of Erika's cars / Erika on foot before shoving it aside
+const patience = who => who === player ? PATIENCE_ON_FOOT : PATIENCE;
 const touchesBelly = c => !driving && pedPush({ x: player.x, z: player.z }, c, P_R + 0.12);
 function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off her belly and gives up the bay
   const dx = c.x - player.x, dz = c.z - player.z, d = Math.hypot(dx, dz) || 1;
@@ -875,7 +876,7 @@ function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off h
 }
 // nudge the blocker sideways (either side), else along the lane; the player on foot always gives way
 function shoveAside(c, o, dt) {
-  if (c.stuckT - dt <= PATIENCE) { floatText('Pousse-toi !', c.x, 3, c.z, '#ff8fa3'); if (nearPlayer(c.x, c.z)) SFX.honk(); }
+  if (c.stuckT - dt <= patience(o)) { floatText('Pousse-toi !', c.x, 3, c.z, '#ff8fa3'); if (nearPlayer(c.x, c.z)) SFX.honk(); }
   const side = Math.sign(o.z) || 1, v = 2.5 * dt;
   if (o === player) { player.z += side * v; return pushOut(player); }
   const pen = carPen(o, o.x, o.z, o.ang);
@@ -930,7 +931,7 @@ function updateAI(c, dt) {
     }
   }
   c.stuckT = gap < 0.5 && (who === player || who?.kind === 'mine') ? (c.stuckT || 0) + dt : 0;
-  if (c.stuckT > PATIENCE) shoveAside(c, who, dt);
+  if (c.stuckT > patience(who)) shoveAside(c, who, dt);
   c.speed += clamp(target - c.speed, -14 * dt, 5 * dt);
   c.x += c.speed * c.dir * dt;
   c.z += (laneZ(c) - c.z) * Math.min(1, dt * 3);
@@ -1536,9 +1537,13 @@ function events(dt) {
   }
   if (PA.phase === 'home') {
     if ((PA.t -= dt) > 0 || driving) return;
-    [pa.x, pa.z] = PA_HOME; Object.assign(PA, { phase: 'chase', give: 45, reroute: 0 });
+    [pa.x, pa.z] = PA_HOME; Object.assign(PA, { phase: 'chase', give: 25, reroute: 0 }); // Erika can shake him off
   } else if (PA.phase === 'chase') {
-    if ((PA.give -= dt) <= 0 || driving) { floatText('Bon…', pa.x, 2.8, pa.z, '#c7e8a0'); return paGoHome(); }
+    if ((PA.give -= dt) <= 0 || driving) {
+      floatText('Bon… je rentre !', pa.x, 2.8, pa.z, '#c7e8a0');
+      if (!driving) toast('Tu as semé le père : il rentre chez lui');
+      return paGoHome();
+    }
     if (Math.hypot(player.x - pa.x, player.z - pa.z) < 1.3) {
       slowT = 6; SFX.fart(); puff(pa.x, pa.z, 12, '#9ccf5a');
       floatText('Prrrrout !', pa.x, 2.8, pa.z, '#9ccf5a'); floatText('Oh non, le père !', player.x, 3.8, player.z, '#ffd166');
@@ -1633,6 +1638,9 @@ function selfTestEvents() {
   Object.assign(player, { x: baguette.position.x, z: baguette.position.z }); window.__game.step(0.1);
   ok(boostT > 0 && !baguette.visible, 'baguette picked up: speed boost');
   PA.t = 0; ok(until(60, () => slowT > 0), 'father farts next to Erika: slowdown');
+  ok(until(60, () => PA.phase === 'home'), 'father back home'); slowT = 0;
+  Object.assign(player, { x: 48, z: 5.5 }); PA.t = 0;
+  ok(until(40, () => PA.phase === 'back') && slowT <= 0, 'Erika shakes him off: he goes home');
   Object.assign(player, { x: -40, z: -5.3 }); chatT = 0;
   ok(until(120, () => cars.some(c => c.chat > 0)), 'a driver stops to chat');
   const n = cars.find(c => c.kind === 'neighbour');
@@ -1738,7 +1746,7 @@ Object.assign(window.__game, { selfTestRules() {
   ok(bmw.smoky && spring.len === 3.73 && !spring.exhaust, 'BMW then Dacia Spring');
   spring.x = -66;
   Object.assign(player, { x: -20, z: 0 });
-  ok(until(150, () => cars.some(c => c.stuckT > PATIENCE)), 'traffic waits behind Erika');
+  ok(until(150, () => cars.some(c => c.stuckT > PATIENCE_ON_FOOT)), 'traffic waits behind Erika');
   ok(until(3, () => Math.abs(player.z) > 1.9), 'Erika shoved aside');
   for (const c of cars.filter(c => c.kind === 'foreign')) leaveStreet(c); // clear the street
   buyTruck(); const tr = cars.at(-1), f = addCar('foreign', '#888', 'hatch');
