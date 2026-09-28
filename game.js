@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4, buildPolo } from './models.js';
+import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4, buildPolo, buildF430 } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
@@ -1135,15 +1135,27 @@ function buyCar() {
   if (score < price) return toast(`A car costs ${price} credits`);
   if (garageBusy()) return toast('Move the car in front of your garage first');
   score -= price; carsOwned++;
-  const m = [buildBMW, buildSpring, buildPicasso][carsOwned - 2]?.(ENV);
-  const c = addCar('mine', MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length], pick(['hatch', 'mini', 'mpv']), m);
-  Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0, broken: Math.random() < 0.35 }); // some won't start: Stéphane comes
+  deliver([buildBMW, buildSpring, buildPicasso][carsOwned - 2]?.(ENV), MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length]);
+}
+// bought cars wait in front of Erika's garage for her to park them; some won't start and Stéphane comes
+function deliver(m, color) {
+  const c = addCar('mine', color, pick(['hatch', 'mini', 'mpv']), m);
+  Object.assign(c, { x: GARAGE_X, z: parkZ(c, -1), ang: 0, broken: Math.random() < 0.35 });
   if (m?.exhaust) Object.assign(c, { exhaust: m.exhaust, smoky: true, smokeT: 0 });
   puff(c.x, c.z, 10, '#fff3c4');
   floatText('New car delivered!', c.x, 3.4, c.z, '#ffd166');
   toast('Your new car is waiting in front of your garage — go and park it');
   SFX.buy();
   pushOut(player);
+}
+const FERRARI_PRICE = 10000;
+let ferrariOwned = false;
+function buyFerrari() {
+  if (ferrariOwned) return toast('You already own the Ferrari');
+  if (score < FERRARI_PRICE) return toast(`The Ferrari costs ${FERRARI_PRICE} credits`);
+  if (garageBusy()) return toast('Move the car in front of your garage first');
+  score -= FERRARI_PRICE; ferrariOwned = true;
+  deliver(buildF430(ENV));
 }
 const TRUCK_PRICE = 5000;
 let truckOwned = false;
@@ -1180,11 +1192,13 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Sound off' : 'Sound on'); }
   if (e.code === 'Digit1' || e.code === 'Numpad1') buyCar();
   if (e.code === 'Digit2' || e.code === 'Numpad2') buyTruck();
+  if (e.code === 'Digit3' || e.code === 'Numpad3') buyFerrari();
 });
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 $('buyCar').onclick = e => { buyCar(); e.currentTarget.blur(); };
 $('buyTruck').onclick = e => { buyTruck(); e.currentTarget.blur(); };
+$('buyFerrari').onclick = e => { buyFerrari(); e.currentTarget.blur(); };
 
 // ───────────────────────── per-frame bookkeeping
 function computeBlocks() {
@@ -1235,7 +1249,9 @@ function hud(dt) {
   $('buyCar').disabled = score < carPrice();
   $('truckPrice').textContent = truckOwned ? 'Owned' : TRUCK_PRICE;
   $('buyTruck').disabled = truckOwned || score < TRUCK_PRICE;
-  $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''} owned`)
+  $('ferrariPrice').textContent = ferrariOwned ? 'Owned' : FERRARI_PRICE;
+  $('buyFerrari').disabled = ferrariOwned || score < FERRARI_PRICE;
+  $('inv').textContent = (binsInHand ? '🗑️ Bin in hand · B to put it down' : `${carsOwned} car${carsOwned > 1 ? 's' : ''}${truckOwned ? ' · 1 truck' : ''}${ferrariOwned ? ' · the Ferrari' : ''} owned`)
     + (boostT > 0 ? ' · 🥖 fast!' : '') + (slowT > 0 ? ' · 💨 slowed' : '');
   const tr = traffic(), tl = tr < 0.3 ? 0 : tr < 0.7 ? 1 : 2;
   if (tl !== trafficLevel) { if (tl === 2) toast('Rush hour! Cars everywhere'); else if (tl === 0 && trafficLevel > 0) toast('Traffic is calming down'); trafficLevel = tl; }
@@ -1694,7 +1710,7 @@ window.__game = { cars, slots, bins, player, keys, actionE, actionB, buyCar, sta
   zoom(v) { viewH = v; resize(); }, cam: { CAM_OFF, camTarget }, // screenshots: pause (P), then aim/tilt via CAM_OFF + player.x/z
   step(sec, dt = 1 / 30) { for (let t = 0; t < sec; t += dt) { update(dt); sync(dt); updateFx(dt); } } };
 // vehicles: selfTest() checks the straddle rule (a car on a bay line blocks 2, the truck 2 or 3) and the E-snap targets
-Object.assign(window.__game, { buyTruck, circles, smoke, selfTest() {
+Object.assign(window.__game, { buyTruck, buyFerrari, circles, smoke, selfTest() {
   const s = slots.find(q => q.side === -1 && q.x === -41), n = (dx, len = 4, dz = 0) => slots.filter(q => covers({ x: s.x + dx, z: s.z + dz, len }, q)).length;
   const got = [n(0), n(SLOT_LEN / 2), n(1.5), n(2), n(0, 4, -s.z), n(SLOT_LEN / 2, 9.6), n(SLOT_LEN, 9.6), n(SLOT_LEN + 1.5, 9.6)].join();
   if (got !== '1,2,1,2,0,2,3,2') throw new Error(`straddle rule: ${got}`);
