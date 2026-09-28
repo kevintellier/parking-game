@@ -949,7 +949,8 @@ function updateAI(c, dt) {
   if (c.x * c.dir > END_X) leaveStreet(c);
 }
 // 0 = calm, 1 = rush hour: ~2.5 min waves (short rushes, longer calm spells) that grow stronger over the first minutes
-const traffic = () => clamp((elapsed - 45) / 300, 0, 1) * (0.25 + 0.75 * (0.5 - 0.5 * Math.cos(elapsed * 2 * Math.PI / 150)) ** 2);
+let trafficForced = null; // debug.trafic(v) pins it
+const traffic = () => trafficForced ?? clamp((elapsed - 45) / 300, 0, 1) * (0.25 + 0.75 * (0.5 - 0.5 * Math.cos(elapsed * 2 * Math.PI / 150)) ** 2);
 function spawner(dt) {
   if ((spawnT -= dt) > 0) return;
   spawnT = (14 - 11.5 * traffic()) * rand(0.7, 1.3);
@@ -1826,11 +1827,11 @@ setup();
 $('best').textContent = best ? `Best score: ${Math.floor(best)}` : '';
 $('start').onclick = () => { started = true; try { actx = new AudioContext(); } catch {} $('title').classList.add('hidden'); toast('Walk to your yellow car and press E'); };
 
-let last = performance.now();
+let last = performance.now(), timeScale = 1;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (started && !paused) update(dt);
+  if (started && !paused) for (let k = timeScale; k > 0; k--) update(dt * Math.min(1, k)); // debug.vitesse(k) runs k updates per frame
   if (!paused) { sync(dt); updateFx(dt); updateWorld(dt); paintSlots(); }
   hud(dt);
   const who = driving || player;
@@ -1931,3 +1932,92 @@ Object.assign(window.__game, { selfTestDriving() {
   ok(r.worst < 0.02 && car.speed <= 0.5 && car.x < f.x - (car.len + f.len) / 2 + 0.2, `stops against a parked car ${JSON.stringify(r)}`);
   return 'ok';
 } });
+
+// ───────────────────────── debug console: type debug.aide() in the browser console (F12)
+{
+  const free = f => { const s0 = score; score = 1e12; f(); score = s0; }; // buy without paying
+  const CARS = { bmw: buildBMW, spring: buildSpring, picasso: buildPicasso, ferrari: buildF430, z4: buildZ4, polo: buildPolo };
+  const who = () => driving || player;
+  const nearMine = () => cars.filter(c => c.kind === 'mine').sort((a, b) => Math.hypot(a.x - who().x, a.z - who().z) - Math.hypot(b.x - who().x, b.z - who().z))[0];
+  const stranger = type => addCar('foreign', pick(AI_COLORS), type ?? pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
+  const HELP = {
+    'credits(n = 1000)': 'ajoute n crédits (négatif pour en retirer)',
+    'setCredits(n)': 'fixe les crédits à n',
+    'inconnu(type?)': "fait entrer une voiture d'inconnu dans la rue (hatch, mpv, suv, mini)",
+    'inconnuGare(n = 1)': "gare n voitures d'inconnus sur des places libres",
+    'videInconnus()': 'fait disparaître toutes les voitures des inconnus',
+    'voisin(nom)': 'fait revenir un voisin tout de suite (Marion, Thierry, Marie-Claude, Dédé, Florence, Le père, Clément, Léa, Kévin)',
+    "voiture(modele = 'bmw')": 'livre gratuitement une voiture devant le garage : ' + Object.keys(CARS).join(', ') + ', ou un type générique (hatch, mpv, suv, mini)',
+    'camion()': 'livre le camion gratuitement',
+    'borne()': 'installe une borne de parking payant gratuitement',
+    'places()': 'achète gratuitement le prochain groupe de places',
+    'tp(x, z)': 'téléporte Erika (ou la voiture conduite) ; la rue va de x = -52 à 52, trottoirs à z = ±6',
+    'baguette()': 'fait apparaître une baguette à côté d’Erika',
+    'vitesseBoost(s = 8) / ralenti(s = 6)': 'bonus / malus de vitesse de marche',
+    'pere()': 'le père sort pour péter à côté d’Erika',
+    'femme()': 'la femme d’Erika part tout de suite avec une voiture',
+    'discussion()': 'la prochaine voiture qui passe près d’Erika s’arrête pour discuter',
+    'panne()': 'met en panne la voiture d’Erika la plus proche',
+    'mecano()': 'appelle Stéphane sur la voiture d’Erika la plus proche',
+    'jack()': 'Jack sort tout de suite garder deux places',
+    'valerie()': 'les poubelles garées sont toutes « en retard » : Valérie arrive',
+    'trafic(v)': 'force le trafic entre 0 (calme) et 1 (rush) ; trafic(null) pour revenir aux vagues',
+    'vitesse(k = 1)': 'vitesse du temps (0.5 = ralenti, 4 = accéléré)',
+    'avance(s)': 'fait avancer la simulation de s secondes d’un coup',
+    'etat()': 'résumé : crédits, trafic, timers des événements, possessions',
+    "tests(nom?)": 'lance les self-tests (tous, ou un seul : Rules, Wife, Events…) — ils modifient la partie',
+  };
+  window.debug = {
+    aide() { console.table(Object.fromEntries(Object.entries(HELP).map(([k, v]) => [`debug.${k}`, v]))); return 'Commandes listées ci-dessus'; },
+    credits(n = 1000) { score = Math.max(0, score + n); return Math.floor(score); },
+    setCredits(n) { score = Math.max(0, n); return Math.floor(score); },
+    inconnu(type) { const c = stranger(type); if (enterStreet(c)) return c; scene.remove(c.mesh); cars.splice(cars.indexOf(c), 1); return 'entrée de rue occupée, réessaie'; },
+    inconnuGare(n = 1) {
+      let k = 0;
+      for (const sl of slots) { if (k >= n) break; if (sl.ai || sl.block) continue; placeParked(stranger(), sl, rand(45, 110)); k++; }
+      return `${k} inconnu(s) garé(s)`;
+    },
+    videInconnus() { const f = cars.filter(c => c.kind === 'foreign'); for (const c of f) { if (c.slot) c.slot.ai = null; scene.remove(c.mesh); cars.splice(cars.indexOf(c), 1); } return `${f.length} voiture(s) supprimée(s)`; },
+    voisin(nom) {
+      const c = cars.find(o => o.kind === 'neighbour' && o.name.toLowerCase() === String(nom).toLowerCase());
+      if (!c) return 'voisins : ' + cars.filter(o => o.kind === 'neighbour').map(o => o.name).join(', ');
+      if (c.state !== 'away') return `${c.name} est déjà dans la rue (${c.state})`;
+      c.timer = 0; return `${c.name} arrive`;
+    },
+    voiture(modele = 'bmw') {
+      if (garageBusy()) return 'quelque chose est déjà devant le garage';
+      const b = CARS[modele];
+      if (!b && !CAR_TYPES[modele]) return 'modèles : ' + Object.keys(CARS).join(', ') + ', ' + Object.keys(CAR_TYPES).join(', ');
+      carsOwned++; return deliver(b?.(ENV), pick(MINE_COLORS)) ?? cars.at(-1);
+    },
+    camion() { truckOwned = false; free(buyTruck); return cars.at(-1); },
+    borne() { free(buyMeter); return 'ok'; },
+    places() { free(buyBays); return `${slots.length} places`; },
+    tp(x, z) { const w = who(); Object.assign(w, { x, z }); if (!driving) pushOut(player); camTarget.set(x, 0, z); return [w.x, w.z]; },
+    baguette() { BAG.t = 0; events(0); const s = Math.sign(player.z) || -1; baguette.position.set(player.x + 2, 0.6, s * (CURB_Z + WALL_Z) / 2); return 'baguette posée'; },
+    vitesseBoost(sec = 8) { boostT = sec; return 'ok'; },
+    ralenti(sec = 6) { slowT = sec; return 'ok'; },
+    pere() { if (PA.phase !== 'home') return `le père est déjà dehors (${PA.phase})`; PA.t = 0; return 'le père arrive'; },
+    femme() { if (W.phase !== 'home') return `elle est déjà partie (${W.phase})`; W.wait = 0; return 'elle arrive'; },
+    discussion() { chatT = 0; return 'ok'; },
+    panne() { const c = nearMine(); if (!c) return 'aucune voiture'; c.broken = true; return c; },
+    mecano() { const c = nearMine(); if (!c) return 'aucune voiture'; c.broken = true; callMechanic(c); return 'Stéphane arrive'; },
+    jack() { if (!['home', 'visit', 'gone', 'round'].includes(J.phase)) return `Jack est occupé (${J.phase})`; J.wait = 0; return 'Jack arrive'; },
+    valerie() { const b = bins.filter(q => q.slot); for (const q of b) q.t = 0; return `${b.length} poubelle(s) en retard`; },
+    trafic(v) { trafficForced = v == null ? null : clamp(v, 0, 1); return traffic(); },
+    vitesse(k = 1) { timeScale = clamp(k, 0.05, 20); return timeScale; },
+    avance(sec) { window.__game.step(sec); return Math.floor(elapsed) + ' s de jeu'; },
+    etat() {
+      return { credits: Math.floor(score), parSeconde: +rate.toFixed(1), trafic: +traffic().toFixed(2), tempsDeJeu: Math.floor(elapsed),
+        voitures: cars.filter(c => c.kind === 'mine').length, camion: truckOwned, ferrari: ferrariOwned, places: slots.length,
+        inconnusGares: foreignN, baguette: baguette.visible ? 'posée' : `dans ${Math.max(0, BAG.t).toFixed(0)} s`,
+        pere: PA.phase === 'home' ? `dans ${Math.max(0, PA.t).toFixed(0)} s` : PA.phase, femme: W.phase === 'home' ? `dans ${Math.max(0, W.wait).toFixed(0)} s` : W.phase,
+        discussion: `dans ${Math.max(0, chatT).toFixed(0)} s`, jack: J.phase, mecano: ST.car ? 'en réparation' : 'libre' };
+    },
+    tests(nom) {
+      const all = Object.keys(window.__game).filter(k => k.startsWith('selfTest')), run = nom ? ['selfTest' + nom] : all;
+      return Object.fromEntries(run.map(t => { try { return [t, window.__game[t]()]; } catch (e) { return [t, e.message]; } }));
+    },
+  };
+  console.info('Parking Guard — console de debug : tapez debug.aide()');
+}
