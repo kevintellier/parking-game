@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4 } from './models.js';
+import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4, buildPolo } from './models.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
@@ -687,7 +687,7 @@ const NEIGHBOURS = [ // home: x of their house (they prefer bays near it)
   { name: 'Florence', color: '#eeeeee', type: 'hatch' },
   { name: 'Le père', color: '#8a8f94', type: 'hatch', home: -25 },
   // Erika's household
-  { name: 'Clément', color: '#8c9196', type: 'hatch', home: -30, dented: true }, // battered grey VW Polo: breaks down every time he parks
+  { name: 'Clément', model: buildPolo, home: -30, dented: true }, // battered grey VW Polo 2015: breaks down every time he parks
   { name: 'Léa', color: '#b7d3e8', type: 'mini', home: -30 },
   { name: 'Kévin', model: buildZ4, home: -30 }, // black BMW Z4 E89
 ];
