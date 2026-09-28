@@ -18,7 +18,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const $ = id => document.getElementById(id);
 
 // ───────────────────────── street layout (street runs along X, sides are z>0 (s=1) and z<0 (s=-1))
-// one-way street: a single lane at z=0, traffic always flows toward +x (enters at -END_X, exits at +END_X)
+// one-way street: a single lane at z=0, traffic always flows toward +x (cars turn in from Rue du Centre at x=-XS, out onto the cross street at +XS)
 const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_X = 70, SLOT_LEN = 5.4;
 // real layout (aguesseau_haut.png): +x = north, Rue du Centre just past -x; west side s=-1: Dédé, Erika, Jack; east side s=1: Marion, Valérie, Marie-Claude
 const SLOT_XS = { 1: [-44.2, -38.8, -33.4, -23.7, -18.3, -8.1, -2.7, 2.7], [-1]: [-41, -35.6, -30.2, -20, -14.6, -3.5, 1.9, 7.3] };
@@ -494,21 +494,29 @@ function buildWorld() {
       zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * (WALL_Z + 20), 1.7, HEDGES.privet, 0.9);
     }
     for (let x = -84; x < 86; x += sr(12, 16)) if (Math.abs(Math.abs(x) - 58) > 9) house(S, x, s, 30, { porch: false, velux: false });
-    // road signs: "sens interdit" facing drivers at the +x end, blue "sens unique" at the -x entrance
-    roadSign(50, s * 5.75, Math.PI / 2, g => {
+    // road signs: "sens interdit" facing drivers at the +x end, blue "sens unique" at the -x entrance;
+    // across Rue du Centre the street is one-way toward -x: blue arrow pointing away, "sens interdit" facing anyone coming out of it
+    const noEntry = g => {
       g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
       g.fillStyle = '#c8102e'; g.beginPath(); g.arc(64, 64, 56, 0, 7); g.fill();
       g.fillStyle = '#fff'; g.fillRect(24, 54, 80, 20);
-    });
-    roadSign(-50.5, s * 5.75, 0, g => {
+    };
+    const oneWay = k => g => {
+      if (k < 0) { g.translate(128, 0); g.scale(-1, 1); }
       g.fillStyle = '#fff'; g.fillRect(0, 0, 128, 128); g.fillStyle = '#1f5fbf'; g.fillRect(6, 6, 116, 116);
       g.fillStyle = '#fff'; g.fillRect(24, 56, 54, 16); g.beginPath(); g.moveTo(72, 36); g.lineTo(106, 64); g.lineTo(72, 92); g.fill();
-    });
+    };
+    roadSign(50, s * 5.75, Math.PI / 2, noEntry);
+    roadSign(-50.5, s * 5.75, 0, oneWay(1));
+    roadSign(-64.5, s * 5.75, 0, oneWay(-1));
+    roadSign(-64.5, s * 5.75, -Math.PI / 2, noEntry);
   }
   // zebra crossings near both ends, one-way arrows painted in the lane
   for (const x of [-49, 49]) for (let k = -4; k <= 4; k++) box(S, 3, 0.01, 0.55, '#efefe9', x, 0.006, k * 1.05);
   const arrow = new THREE.ShapeGeometry(new THREE.Shape([V2(-1.6, -0.12), V2(0.5, -0.12), V2(0.5, -0.42), V2(1.6, 0), V2(0.5, 0.42), V2(0.5, 0.12), V2(-1.6, 0.12)])).rotateX(-Math.PI / 2);
   for (const x of [-40, 0, 40]) mesh(S, arrow, '#efefe9', x, 0.008, 0);
+  for (const x of [-72, -90]) mesh(S, arrow, '#efefe9', x, 0.008, 0).rotation.y = Math.PI; // one-way street beyond Rue du Centre
+  for (const x of [-58, 58]) for (let z = 6.5; z < 120; z += 4) for (const s of [1, -1]) box(S, 0.14, 0.01, 2, '#efefe9', x, 0.006, s * z); // cross streets: two-way
 
   // wooden utility poles with arm-mounted lamps, droopy overhead wires and service drops (far side, like the photos)
   const poleXs = [-38, -22.5, -2, 18, 38], pz = -6.85, WIRE = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
@@ -806,14 +814,15 @@ function findSlot(c) {
   }
   return best;
 }
-function obstacleAhead(c) {
+function obstacleAhead(c) { // along the car's heading (lane or cross street)
   let gap = Infinity, who = null;
+  const hx = Math.cos(c.ang), hz = -Math.sin(c.ang);
   const test = (o, x, z, clear, lat = 1.9) => {
-    const along = (x - c.x) * c.dir;
-    if (along > 0 && Math.abs(z - c.z) < lat && along - clear < gap) { gap = along - clear; who = o; }
+    const along = (x - c.x) * hx + (z - c.z) * hz;
+    if (along > 0 && Math.abs((x - c.x) * hz - (z - c.z) * hx) < lat && along - clear < gap) { gap = along - clear; who = o; }
   };
   // only cars whose centre is ahead: two overlapping cars would otherwise each wait for the other forever
-  for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked' && (o.x - c.x) * c.dir > 0) for (const [x, z, r] of circles(o)) test(o, x, z, c.len / 2 + r + 1.2, CAR_R + r);
+  for (const o of cars) if (o !== c && o.state !== 'away' && o.state !== 'parked' && (o.x - c.x) * hx + (o.z - c.z) * hz > 0) for (const [x, z, r] of circles(o)) test(o, x, z, c.len / 2 + r + 1.2, CAR_R + r);
   if (!driving) test(player, player.x, player.z, c.len / 2 + 1.2);
   for (const b of bins) test(b, b.x, b.z, c.len / 2 + 1);
   for (const w of walkers) if (w.g.visible) test(w, w.x, w.z, c.len / 2 + 1.2);
@@ -833,13 +842,63 @@ function placeParked(c, s, stay) {
   Object.assign(c, { dir: 1, x: s.x, z: s.z, ang: parkedAng(s), state: 'parked', slot: s, timer: stay, speed: 0 });
   s.ai = c;
 }
-function enterStreet(c) {
-  const d = 1, x = -END_X, lz = LANE_Z;
-  if (cars.some(o => o !== c && o.state !== 'away' && Math.abs(o.x - x) < 9 && Math.abs(o.z - lz) < 1.2)) return false;
-  Object.assign(c, { dir: d, x, z: lz, ang: d > 0 ? 0 : Math.PI, state: 'drive', speed: c.cruise, scan: 0, slot: null,
-    wantsSlot: c.kind === 'neighbour' || Math.random() < 0.35 + 0.4 * traffic() });
-  c.mesh.visible = true;
+// cross streets at x=±XS (two-way, keep right): cars come down Rue du Centre (-XS) from either end, wait at the stop line, turn in;
+// at the far end they turn onto the other cross street (+XS) and drive off. The street facing us across Rue du Centre is one-way toward -x.
+const XS = 58, XL = 2.5, EXIT_X = 50, TURN_V = 4.5;
+const crossX = (x0, s) => x0 - s * XL; // lane of heading s (±z) on the cross street at x0
+// Bezier from the stop line on cross street x0 (heading s) into the x-street heading d (1: Aguesseau, -1: one-way street), d=0: straight on
+const turnPath = (x0, s, d) => { const lx = crossX(x0, s); return d ? [[lx, -7 * s], [lx, -s], [lx + 3 * d, 0], [x0 + 8 * d, 0]] : [[lx, -7 * s], [lx, -2 * s], [lx, 2 * s], [lx, 7 * s]]; };
+const outPath = s => { const lx = crossX(XS, s); return [[EXIT_X, 0], [lx - 3, 0], [lx, s], [lx, 7 * s]]; };
+const pathNear = (P, Q) => { for (let a = 0; a <= 1; a += 0.1) for (let b = 0; b <= 1; b += 0.1) if (Math.hypot(bez(P, a, 0) - bez(Q, b, 0), bez(P, a, 1) - bez(Q, b, 1)) < 2.6) return true; return false; };
+// a turn may start when no crossing turn is under way (same turn: once the one ahead is halfway) and its end is clear; Erika's cars get shoved instead
+const canTurn = (c, P) => !cars.some(o => o !== c && o.state !== 'away' && o.state !== 'parked' && (o.state === 'turn'
+  ? pathNear(o.path, P) && !(o.t > 0.5 && o.path[2] + '' + o.path[3] === P[2] + '' + P[3])
+  : o.state !== 'mine' && circles(o).some(([x, z, r]) => Math.hypot(x - P[3][0], z - P[3][1]) < c.len / 2 + r + 1)));
+function startTurn(c, P) {
+  const p = c.path = [[c.x, c.z], ...P.slice(1)], d = (i, j) => Math.hypot(p[i][0] - p[j][0], p[i][1] - p[j][1]);
+  Object.assign(c, { t: 0, L: (d(0, 3) + d(0, 1) + d(1, 2) + d(2, 3)) / 2, state: 'turn', route: null, exitS: 0 });
+}
+// arrive (queue down the cross street), turn (Bezier at walking pace, pauses behind obstacles), depart (off down the cross street, then gone)
+function crossStreet(c, dt) {
+  if (c.state !== 'arrive' && c.state !== 'turn' && c.state !== 'depart') return false;
+  if (c.state === 'depart' && (Math.abs(c.z) > END_X || Math.abs(c.x) > 98)) { (c.gone || leaveStreet)(c); return true; }
+  const [gap, who] = obstacleAhead(c), hx = Math.cos(c.ang), hz = -Math.sin(c.ang);
+  let v = gap < 0 ? 0 : Math.min(c.state === 'turn' ? TURN_V : c.cruise, gap * 1.6);
+  if (c.state === 'arrive') {
+    const P = c.route, rem = (P[0][0] - c.x) * hx + (P[0][1] - c.z) * hz, go = rem > 15 || canTurn(c, P);
+    if (go && rem < 0.3) startTurn(c, P);
+    else v = Math.min(v, go ? TURN_V + rem * 0.5 : Math.max(0, rem) * 1.6);
+  }
+  stuck(c, gap, who, dt);
+  c.speed += clamp(v - c.speed, -14 * dt, 5 * dt);
+  if (c.state !== 'turn') { c.x += hx * c.speed * dt; c.z += hz * c.speed * dt; return true; }
+  const p = c.path, u = c.t = Math.min(1, c.t + c.speed * dt / c.L);
+  c.x = bez(p, u, 0); c.z = bez(p, u, 1); c.ang = Math.atan2(-bezD(p, u, 1), bezD(p, u, 0));
+  if (u === 1) c.state = Math.abs(c.z) < 1 && Math.abs(c.x) < XS ? 'drive' : 'depart';
   return true;
+}
+// near the far end: hold at EXIT_X until the turn onto the cross street is free, then take it (either way); -1 once turning
+function exitGate(c, v, gone = leaveStreet) {
+  if (c.x < EXIT_X - 10) return v;
+  c.gone = gone;
+  if (c.x > EXIT_X + 3) { gone(c); return -1; } // already past the turn (shoved, placed by a test)
+  const P = outPath(c.exitS ||= pick([1, -1]));
+  if (!canTurn(c, P)) return Math.min(v, Math.max(0, EXIT_X - c.x) * 1.6);
+  if (c.x < EXIT_X - 0.3) return Math.min(v, TURN_V + (EXIT_X - c.x) * 0.5);
+  startTurn(c, P); return -1;
+}
+// enter from either end of Rue du Centre (false if both ends are busy); d as in turnPath: 0/-1 = through traffic that never enters
+function enterStreet(c, d = 1) {
+  const s0 = pick([1, -1]);
+  for (const s of [s0, -s0]) {
+    const x = crossX(-XS, s), z = -s * END_X;
+    if (cars.some(o => o !== c && o.state !== 'away' && Math.abs(o.x - x) < 1.5 && Math.abs(o.z - z) < 9)) continue;
+    Object.assign(c, { dir: 1, x, z, ang: -s * Math.PI / 2, state: 'arrive', speed: c.cruise, scan: 0, slot: null, route: turnPath(-XS, s, d), exitS: 0, gone: null,
+      wantsSlot: d > 0 && (c.kind === 'neighbour' || Math.random() < 0.35 + 0.4 * traffic()) });
+    c.mesh.visible = true;
+    return true;
+  }
+  return false;
 }
 function leaveStreet(c) {
   if (c.slot) { c.slot.ai = null; c.slot = null; }
@@ -887,9 +946,14 @@ function shoveAside(c, o, dt) {
   const pen = carPen(o, o.x, o.z, o.ang);
   for (const [dx, dz] of [[0, side], [0, -side], [c.dir, 0]]) if (carPen(o, o.x + dx * v, o.z + dz * v, o.ang) <= pen + 1e-4) { o.x += dx * v; o.z += dz * v; return; }
 }
+function stuck(c, gap, who, dt) { // blocked by Erika or one of her cars: shove it aside after a while
+  c.stuckT = gap < 0.5 && (who === player || who?.state === 'mine') ? (c.stuckT || 0) + dt : 0; // not the wife driving one
+  if (c.stuckT > patience(who)) shoveAside(c, who, dt);
+}
 function updateAI(c, dt) {
   c.honkT -= dt;
   if (c.kick > 0) { c.x += c.kx * c.kick * dt; c.z += c.kz * c.kick * dt; c.kick -= dt * 4; }
+  if (crossStreet(c, dt)) return;
   switch (c.state) {
     case 'away':
       if ((c.timer -= dt) <= 0 && !enterStreet(c)) c.timer = 1;
@@ -935,8 +999,8 @@ function updateAI(c, dt) {
       if (rem <= 9 && gap > 1) return startPark(c);
     }
   }
-  c.stuckT = gap < 0.5 && (who === player || who?.kind === 'mine') ? (c.stuckT || 0) + dt : 0;
-  if (c.stuckT > patience(who)) shoveAside(c, who, dt);
+  stuck(c, gap, who, dt);
+  if ((target = exitGate(c, target)) < 0) return;
   c.speed += clamp(target - c.speed, -14 * dt, 5 * dt);
   c.x += c.speed * c.dir * dt;
   c.z += (laneZ(c) - c.z) * Math.min(1, dt * 3);
@@ -946,7 +1010,6 @@ function updateAI(c, dt) {
     if (nearPlayer(c.x, c.z)) SFX.honk();
     floatText(pick(['BEEP!', 'Pouet!', 'HONK!']), c.x, 3, c.z, '#ffd166');
   }
-  if (c.x * c.dir > END_X) leaveStreet(c);
 }
 // 0 = calm, 1 = rush hour: ~2.5 min waves (short rushes, longer calm spells) that grow stronger over the first minutes
 let trafficForced = null; // debug.trafic(v) pins it
@@ -956,7 +1019,7 @@ function spawner(dt) {
   spawnT = (14 - 11.5 * traffic()) * rand(0.7, 1.3);
   if (cars.filter(c => c.kind === 'foreign').length > 24) return;
   const c = addCar('foreign', pick(AI_COLORS), pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
-  if (!enterStreet(c)) { scene.remove(c.mesh); cars.pop(); }
+  if (!enterStreet(c, Math.random() < 0.3 ? pick([0, -1]) : 1)) { scene.remove(c.mesh); cars.pop(); } // 30%: just passing on Rue du Centre
 }
 
 // ───────────────────────── player movement & actions
@@ -1538,6 +1601,7 @@ function jack(dt) {
       return;
     }
     case 'drive': {
+      if (crossStreet(J, dt)) return;
       if (!J.leaving && !(J.goal && J.goal.x - J.x > 3 && J.goal.bays.every(bayFree))) J.goal = jackGoal();
       const [gap] = obstacleAhead(J), g = J.goal;
       let v = gap < 0 ? 0 : Math.min(J.cruise, gap * 1.6);
@@ -1549,9 +1613,9 @@ function jack(dt) {
           return;
         }
       }
+      if ((v = exitGate(J, v, () => Object.assign(J, { state: 'away', phase: J.leaving ? 'gone' : 'round', wait: J.leaving ? rand(10, 25) : 4 }).mesh.visible = false)) < 0) return;
       J.speed += clamp(v - J.speed, -14 * dt, 5 * dt);
       J.x += J.speed * dt; J.z -= J.z * Math.min(1, dt * 3); J.ang = 0;
-      if (J.x > END_X) Object.assign(J, { state: 'away', phase: J.leaving ? 'gone' : 'round', wait: J.leaving ? rand(10, 25) : 4 }).mesh.visible = false;
     }
   }
 }
@@ -1589,6 +1653,7 @@ function wife(dt) {
       go(ww, route(ww.x, ww.z, GARAGE_X, WIFE_HOME), () => { ww.g.visible = false; W.phase = 'home'; W.wait = rand(180, 240); });
       return;
     case 'drive': {
+      if (crossStreet(c, dt)) return;
       const [gap] = obstacleAhead(c), rem = W.back && !garageBusy(c) ? GARAGE_X - c.x : -1;
       let v = gap < 0 ? 0 : Math.min(c.cruise, gap * 1.6);
       if (rem > 3) {
@@ -1600,9 +1665,9 @@ function wife(dt) {
           return;
         }
       }
+      if ((v = exitGate(c, v, () => { c.state = 'away'; c.mesh.visible = false; W.phase = 'away'; W.wait = W.back ? 4 : rand(25, 50); })) < 0) return; // garage blocked: another lap
       c.speed += clamp(v - c.speed, -14 * dt, 5 * dt);
       c.x += c.speed * dt; c.z -= c.z * Math.min(1, dt * 3); c.ang = 0;
-      if (c.x > END_X) { c.state = 'away'; c.mesh.visible = false; W.phase = 'away'; W.wait = W.back ? 4 : rand(25, 50); } // garage blocked: another lap
     }
   }
 }
@@ -1874,9 +1939,9 @@ Object.assign(window.__game, { selfTestRules() {
   const home = { x: bmw.x, z: bmw.z };
   bmw.z = 0.3; actionE();
   ok(!driving && Math.hypot(bmw.x - home.x, bmw.z - home.z) < 1e-6, 'car left on the road goes home');
-  bmw.x = -60; buyCar(); const spring = cars.at(-1);
+  bmw.x = -72; buyCar(); const spring = cars.at(-1); // out of the way: Rue du Centre is busy now
   ok(bmw.smoky && spring.len === 3.73 && !spring.exhaust, 'BMW then Dacia Spring');
-  spring.x = -66;
+  spring.x = -78;
   Object.assign(player, { x: -20, z: 0 });
   ok(until(150, () => cars.some(c => c.stuckT > PATIENCE_ON_FOOT)), 'traffic waits behind Erika');
   ok(until(3, () => Math.abs(player.z) > 1.9), 'Erika shoved aside');
@@ -2021,3 +2086,30 @@ Object.assign(window.__game, { selfTestDriving() {
   };
   console.info('Parking Guard — console de debug : tapez debug.aide()');
 }
+// traffic: cars come down Rue du Centre from both ends and turn in, leave at the far end either way, never overlap, never come out of the one-way street
+Object.assign(window.__game, { selfTestTraffic() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestTraffic: ' + m); };
+  if (driving) { driving.speed = 0; actionE(); }
+  W.wait = PA.t = chatT = BAG.t = 1e9;
+  Object.assign(player, { x: 0, z: -6.2 }); elapsed = 375; // rush hour
+  const from = {}, prev = {}, turnT = {}, seen = { in1: 0, 'in-1': 0, out1: 0, 'out-1': 0, pass: 0 }, moving = ['arrive', 'turn', 'depart'];
+  for (let i = 0; i < 240 * 30; i++) {
+    window.__game.step(1 / 30);
+    const live = cars.filter(c => c.kind !== 'mine' && [...moving, 'drive', 'leave', 'park'].includes(c.state));
+    for (const c of live) {
+      if (c.state === 'arrive') from[c.id] = -Math.sign(c.z); // heading along z: +1 = came from z<0
+      ok((turnT[c.id] = c.state === 'turn' ? (turnT[c.id] || 0) + 1 / 30 : 0) < 15, `car ${c.id} stuck mid-turn`);
+      if (prev[c.id] === 'turn' && c.state === 'drive' && c.x < 0) seen['in' + from[c.id]]++;
+      if (prev[c.id] === 'turn' && c.state === 'depart') c.x > 0 ? seen['out' + Math.sign(c.z)]++ : seen.pass++;
+      ok(!(c.x < -XS - 5 && Math.cos(c.ang) > 0.3), 'a car comes out of the one-way street');
+      for (const o of live) if (o.id > c.id && (moving.includes(c.state) || moving.includes(o.state)))
+        for (const [ax, az, ar] of circles(c)) for (const [bx, bz, br] of circles(o))
+          ok(Math.hypot(ax - bx, az - bz) > ar + br - 0.1, `cars ${c.id} (${c.state}) and ${o.id} (${o.state}) overlap at ${c.x.toFixed(1)},${c.z.toFixed(1)}`);
+    }
+    for (const c of cars) prev[c.id] = c.state;
+  }
+  ok(seen.in1 > 1 && seen['in-1'] > 1, 'turn in from both ends of Rue du Centre ' + JSON.stringify(seen));
+  ok(seen.out1 > 1 && seen['out-1'] > 1, 'turn out both ways at the far end ' + JSON.stringify(seen));
+  ok(seen.pass > 0, 'through traffic on Rue du Centre');
+  return 'ok ' + JSON.stringify(seen);
+} });
