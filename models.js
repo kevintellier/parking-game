@@ -632,6 +632,82 @@ export function buildPolo(env) {
   return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.1, 0.24, -0.45) };
 }
 
+// ───────────── a stranger's black Seat Leon Cupra, tuned: lowered, black wheels, twin big pipes, roof spoiler, dark tint,
+// Portuguese flag sticker on the rear window and on a roof-antenna. flames: backfire cones at the pipes, hidden until game.js flashes them.
+const ptFlag = () => M('#ffffff', { roughness: 0.6, side: THREE.DoubleSide, map: tex('ptFlag', 96, 64, (c, w, h) => {
+  c.fillStyle = '#046a38'; c.fillRect(0, 0, w * 0.4, h); c.fillStyle = '#da291c'; c.fillRect(w * 0.4, 0, w * 0.6, h);
+  c.strokeStyle = '#ffe000'; c.lineWidth = 3; c.beginPath(); c.arc(w * 0.4, h / 2, 15, 0, 2 * PI); c.stroke(); // armillary sphere
+  c.lineWidth = 2; c.beginPath(); c.ellipse(w * 0.4, h / 2, 15, 5, -0.4, 0, 2 * PI); c.stroke();
+  c.fillStyle = '#fff'; c.fillRect(w * 0.4 - 8, h / 2 - 9, 16, 18); c.fillStyle = '#da291c'; c.fillRect(w * 0.4 - 6, h / 2 - 7, 12, 14); // shield
+  c.fillStyle = '#fff'; c.fillRect(w * 0.4 - 3, h / 2 - 4, 6, 8); c.fillStyle = '#1d3f9a'; c.fillRect(w * 0.4 - 2, h / 2 - 3, 4, 6);
+}) });
+export function buildSeat(env) {
+  const len = 4.2, w = 1.8, sill = 0.16, belt = 0.86, hood = 0.17, fx = 0.72, h = 0.48, rx = -1.98, trx = -1.42;
+  const rim = rimTex('seatRim', (c, r) => { // gloss black 5 twin-spoke, grey spoke edges
+    c.fillStyle = '#050506'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill();
+    c.fillStyle = '#c4121a'; c.beginPath(); c.arc(0, 0, r - 12, -PI * 0.72, -PI * 0.28); c.arc(0, 0, r - 34, -PI * 0.28, -PI * 0.72, true); c.fill(); // red caliper behind the spokes
+    c.strokeStyle = '#3c3f45'; c.lineCap = 'round';
+    for (let i = 0; i < 5; i++) { c.rotate(2 * PI / 5); c.lineWidth = 9; c.beginPath(); c.moveTo(-4, 12); c.lineTo(-11, r - 6); c.moveTo(4, 12); c.lineTo(11, r - 6); c.stroke(); }
+    c.strokeStyle = '#8a8f96'; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, r - 2, 0, 2 * PI); c.stroke(); // machined lip
+    c.fillStyle = '#b8bcc0'; c.beginPath(); c.arc(0, 0, 9, 0, 2 * PI); c.fill();
+  });
+  const { g, body, p, E, L } = carBase(env, 'seat', { len, w, sill, belt, hood, cab: [rx, fx, -0.02, trx, h], paint: '#0c0d10', wheelR: 0.33, tw: 0.25, axles: [1.33, -1.3], rim });
+  body.children[1].material = M('#0f151c', { roughness: 0.03, metalness: 0.9, ...E }); // limo tint, still catching reflections
+  const box = (m, sx, sy, sz, x, y, z, par = body) => add(par, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
+  const rbox = (m, sx, sy, sz, r, x, y, z) => add(body, G(RoundedBoxGeometry, sx, sy, sz, 2, r), m, x, y, z);
+  const black = M('#101113', { roughness: 0.55 }), chrome = M('#d5dade', { roughness: 0.12, metalness: 1, ...E });
+  const led = M('#f2f7ff', { emissive: '#dfeaff', emissiveIntensity: 1.4 }), red = M('#9c0d10', { emissive: '#e01010', emissiveIntensity: 0.8 });
+  const lens = M('#8f9aa6', { roughness: 0.08, metalness: 0.6, ...E }), mesh = M('#ffffff', { roughness: 0.5, map: tex('seatMesh', 64, 32, (c, s, t) => {
+    c.fillStyle = '#040405'; c.fillRect(0, 0, s, t); c.fillStyle = '#2a2c30';
+    for (let y = 2; y < t; y += 6) for (let x = (y % 12 ? 0 : 3); x < s; x += 6) c.fillRect(x, y, 3, 3); // honeycomb
+  }) });
+  const logo = M('#ffffff', { roughness: 0.25, metalness: 0.8, map: tex('seatLogo', 64, 64, c => { // chrome split "S"
+    c.fillStyle = '#111'; c.fillRect(0, 0, 64, 64); c.fillStyle = '#dfe3e7';
+    c.beginPath(); c.moveTo(14, 12); c.lineTo(52, 12); c.lineTo(52, 22); c.lineTo(26, 30); c.lineTo(14, 30); c.fill();
+    c.beginPath(); c.moveTo(50, 52); c.lineTo(12, 52); c.lineTo(12, 42); c.lineTo(38, 34); c.lineTo(50, 34); c.fill();
+  }) });
+  const plate = M('#ffffff', { roughness: 0.5, map: tex('ptPlate', 256, 56, (c, w, h) => {
+    c.fillStyle = '#f6f6f2'; c.fillRect(0, 0, w, h); c.fillStyle = '#1f3fa6'; c.fillRect(0, 0, 22, h); c.fillStyle = '#f2c500'; c.fillRect(w - 22, 0, 22, h);
+    c.fillStyle = '#111'; c.font = 'bold 34px monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('27-XT-91', w / 2, h / 2 + 2);
+  }) });
+  // nose: honeycomb grille with the logo, big lower intake, splitter, sharp LED headlights
+  const nose = belt - hood;
+  box(mesh, 0.04, 0.13, 0.7, L - 0.02, nose - 0.13, 0); box(chrome, 0.045, 0.012, 0.7, L - 0.01, nose - 0.06, 0);
+  add(body, G(THREE.PlaneGeometry, 0.12, 0.12), logo, L + 0.005, nose - 0.13, 0).rotation.y = PI / 2;
+  box(mesh, 0.04, 0.14, 1.1, L - 0.01, 0.3, 0); box(black, 0.2, 0.03, w - 0.1, L - 0.02, 0.17, 0); // lower intake, splitter
+  add(body, G(THREE.PlaneGeometry, 0.52, 0.11), plate, L + 0.015, 0.3, 0).rotation.y = PI / 2;
+  for (const k of [-1, 1]) {
+    const hl = pivot(body, L - 0.07, nose - 0.08, k * 0.62); hl.rotation.set(0, -k * 0.35, -0.2);
+    add(hl, G(THREE.BoxGeometry, 0.2, 0.08, 0.36), lens); add(hl, G(THREE.BoxGeometry, 0.2, 0.02, 0.3), led, 0.012, -0.03, 0);
+    box(mesh, 0.04, 0.12, 0.2, L - 0.04, 0.33, k * 0.73); // side intakes
+    // sides: black skirts, handles, belt line, mirrors
+    box(black, 2.2, 0.08, 0.04, -0.05, sill + 0.03, k * (w / 2 + 0.005));
+    for (const x of [0.15, -0.95]) box(chrome, 0.14, 0.025, 0.02, x, 0.76, k * (w / 2 + 0.01));
+    box(chrome, 2.4, 0.02, 0.02, -0.66, belt + 0.01, k * (w / 2 - 0.1)); // chrome belt line so the tint reads against the paint
+    rbox(p, 0.18, 0.1, 0.15, 0.04, 0.5, belt + 0.08, k * (w / 2 + 0.02));
+    // rear: wide LED tail lights on the corners, twin big round pipes in a diffuser
+    box(red, 0.05, 0.1, 0.44, -L + 0.03, 0.74, k * 0.6).rotation.y = k * 0.18;
+    box(led, 0.052, 0.012, 0.36, -L + 0.03, 0.72, k * 0.6).rotation.y = k * 0.18;
+    add(body, once('seatPipe', () => new THREE.CylinderGeometry(0.075, 0.075, 0.16, 16).rotateZ(PI / 2)), chrome, -L - 0.02, 0.24, k * 0.16);
+    add(body, once('seatPipeIn', () => new THREE.CylinderGeometry(0.058, 0.058, 0.16, 16).rotateZ(PI / 2)), '#050505', -L - 0.03, 0.24, k * 0.16);
+  }
+  box(black, 0.06, 0.13, 1.3, -L + 0.01, 0.25, 0); for (const z of [-0.5, -0.36, 0.36, 0.5]) box(black, 0.14, 0.13, 0.02, -L - 0.03, 0.25, z); // diffuser fins
+  add(body, G(THREE.PlaneGeometry, 0.52, 0.11), plate, -L - 0.005, 0.5, 0).rotation.y = -PI / 2;
+  add(body, G(THREE.PlaneGeometry, 0.09, 0.09), logo, -L - 0.005, 0.72, 0).rotation.y = -PI / 2;
+  rbox(p, 0.3, 0.04, w - 0.4, 0.02, trx - 0.1, belt + h - 0.01, 0).rotation.z = 0.12; // roof spoiler
+  // rear-window sticker (on the slope of the hatch glass) and a small flag on the roof antenna
+  const a = Math.atan2(trx - rx, h * 0.96), st = pivot(body, rx + (trx - rx) * 0.6 - 0.012 * Math.cos(a), belt - 0.02 + h * 0.96 * 0.6 + 0.012 * Math.sin(a), -0.35);
+  st.rotation.z = -a; add(st, G(THREE.PlaneGeometry, 0.27, 0.18), ptFlag()).rotation.y = -PI / 2;
+  box(black, 0.015, 0.5, 0.015, -1.45, belt + h + 0.25, 0.3); add(body, G(THREE.PlaneGeometry, 0.27, 0.18), ptFlag(), -1.59, belt + h + 0.4, 0.3);
+  // backfire flames, pointing back out of both pipes
+  const flames = pivot(body, -L - 0.1, 0.24, 0); flames.visible = false; flames.userData.flames = true;
+  for (const k of [-1, 1]) for (const [r, l, col] of [[0.07, 0.42, '#ff3c00'], [0.04, 0.28, '#fff07a']]) {
+    const f = add(flames, once('flame' + r, () => new THREE.ConeGeometry(r, l, 10).rotateZ(PI / 2).translate(-l / 2, 0, 0)), once('flameMat' + col, () => new THREE.MeshBasicMaterial({ color: col, toneMapped: false, transparent: true, opacity: r > 0.05 ? 0.8 : 1 })), 0, 0, k * 0.16);
+    f.castShadow = false;
+  }
+  return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.1, 0.24, 0), flames };
+}
+
 export function buildSpring(env) {
   const len = 3.73, w = 1.58, sill = 0.34, belt = 0.94;
   const rim = rimTex('springRim', (c, r) => { // grey plastic wheel cover
