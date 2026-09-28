@@ -1,6 +1,6 @@
 // Erika (the player) — reference photos: maison.png, Aguesseau_1-2.png, aguesseau_haut.png
 // A 1930s pavillon: cream render, steep terracotta gable facing the street (attic window with brown shutters, bargeboards
-// on brackets), tiled canopy over the door, grey lintel bands, chimney + velux on the north (+x) slope, rear wing, and a
+// on brackets), tiled canopy over the door, grey lintel bands, chimney + velux on the north (+x) slope, a lower rear wing, and a
 // white garage with a grey roof set back at the end of the driveway (x = -25).
 export const hero = { style: 'green', mail: '#2d5a43', wicket: -30.6 }; // green pedestrian gate in line with the door
 
@@ -85,12 +85,12 @@ export default function build(k, l) {
   for (const z of [ZF - 1.8, ZF - 6.2]) win(k, X1 + 0.03, 1.55, z, Math.PI / 2, 1.05, 1.25);
   win(k, X1 + 0.03, 1.8, ZF - 4.0, Math.PI / 2, 0.55, 0.7);
 
-  // ── rear wing: same height, ridge parallel to the street, shifted south
-  const rx0 = -35.2, rx1 = -28.4, rz0 = ZB, rz1 = -25.2, rw = rx1 - rx0, rd = rz0 - rz1;
-  k.box(S, rw, H, rd, WALL, (rx0 + rx1) / 2, H / 2, (rz0 + rz1) / 2);
+  // ── rear wing (aerial view): lower than the front house, ridge perpendicular to the street like it, shifted south
+  const rx0 = -35.2, rx1 = -28.4, rz0 = ZB, rz1 = -25.2, rw = rx1 - rx0, rd = rz0 - rz1, rh = 2.7;
+  k.box(S, rw, rh, rd, WALL, (rx0 + rx1) / 2, rh / 2, (rz0 + rz1) / 2);
   k.box(S, rw + 0.08, 0.45, rd + 0.08, PLINTH, (rx0 + rx1) / 2, 0.225, (rz0 + rz1) / 2);
-  roof(k, group(k, S, (rx0 + rx1) / 2, H, (rz0 + rz1) / 2, Math.PI / 2), rd, rw, 2.2, rm, WALL, { gov: 0.25 });
-  win(k, rx1 + 0.03, 1.55, (rz0 + rz1) / 2, Math.PI / 2, 1.05, 1.25);
+  roof(k, group(k, S, (rx0 + rx1) / 2, rh, (rz0 + rz1) / 2), rw, rd, 1.9, rm, WALL, { gov: 0.25 });
+  win(k, rx1 + 0.03, 1.4, (rz0 + rz1) / 2, Math.PI / 2, 1.05, 1.1);
 
   // ── garage at the end of the driveway: white, low gable with grey roof and white fascias, door facing the street
   const gx = -24.95, gz0 = -15, gz1 = -21, gw = 3.3, gh = 2.5, gd = gz0 - gz1;

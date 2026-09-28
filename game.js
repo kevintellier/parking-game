@@ -75,6 +75,7 @@ const boxGeo = (w, h, d) => geoCache[`${w}|${h}|${d}`] ||= new THREE.BoxGeometry
 const GLASS = new THREE.MeshStandardMaterial({ color: '#3a5068', roughness: 0.08, metalness: 0.6, envMap: ENV, envMapIntensity: 0.8 });
 const HEAD = new THREE.MeshStandardMaterial({ color: '#fff8e0', emissive: '#fff1c0', emissiveIntensity: 0.8 });
 const TAIL = new THREE.MeshStandardMaterial({ color: '#b01818', emissive: '#ff2020', emissiveIntensity: 0.5 });
+const BLINK = new THREE.MeshStandardMaterial({ color: '#ffae00', emissive: '#ff9500', emissiveIntensity: 1.6 }); // turn signals
 const LAMP = new THREE.MeshStandardMaterial({ color: '#fff4d0', emissive: '#ffe7a8', emissiveIntensity: 0.7 });
 
 function box(parent, w, h, d, color, x = 0, y = 0, z = 0) {
@@ -443,7 +444,11 @@ function row(s, cuts, gates = [], main = true) {
       }
       garden(l);
     }
-    if (l.x1 < cuts.at(-1)) zhedge(l.x1, s * (WALL_Z + 0.4), s * (zf - 0.3), 1.2, sp(Object.values(HEDGES).slice(0, 3)), 0.7); // between front gardens
+    if (l.x1 < cuts.at(-1)) { // rendered party wall between neighbours: low along the front garden, full height behind the houses
+      const zb = 26, fl = zf - WALL_Z - 0.15, bl = zb - zf;
+      box(S, 0.24, 1.1, fl, '#e8e2d4', l.x1, 0.55, s * (WALL_Z + 0.15 + fl / 2)); box(S, 0.34, 0.07, fl, '#cfc9bd', l.x1, 1.13, s * (WALL_Z + 0.15 + fl / 2));
+      box(S, 0.24, 1.8, bl, '#e8e2d4', l.x1, 0.9, s * (zf + bl / 2)); box(S, 0.34, 0.07, bl, '#cfc9bd', l.x1, 1.83, s * (zf + bl / 2));
+    }
     if (!l.build) tree(S, sr(l.x0 + 1, l.x1 - 1), s * sr(22, 26), sr(4.5, 7.5), sp(['green', 'green', 'red', 'cone'])); // real houses plant their own
   }
 }
@@ -471,6 +476,10 @@ function markings(P, s, gp) {
   for (const [x, k] of [[a, -1], [b, 1]]) box(P, 2.54, 0.01, 0.12, W, x + k * 0.75, 0.006, edge + s * 1.02).rotation.y = -k * s * 0.94;
   for (let i = 1; i < gp.length; i++) box(P, 0.1, 0.01, 0.5, W, gp[i] - SLOT_LEN / 2, 0.006, edge + s * 0.25);
 }
+// all bay markings live in one group, redrawn when bays are bought (new bays next to old ones merge into one group)
+const MARKS = new THREE.Group();
+scene.add(MARKS);
+function drawMarkings() { MARKS.clear(); for (const s of [1, -1]) for (const gp of bayGroups(SLOT_XS[s])) markings(MARKS, s, gp); }
 function buildWorld() {
   const ground = (w, d, map, x, y, z) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map, roughness: 0.95 }));
@@ -487,7 +496,6 @@ function buildWorld() {
       box(S, b - a, 0.2, 0.25, '#bdbab2', (a + b) / 2, 0.1, s * CURB_Z);
       box(S, b - a, 0.012, 0.35, '#7b7872', (a + b) / 2, 0.004, s * (CURB_Z - 0.3));
     }
-    for (const gp of bayGroups(SLOT_XS[s])) markings(S, s, gp);
     // lots (walls, gates, houses, gardens), a few beyond the cross streets, then a back row
     row(s, CUTS[s], GATES[s]);
     row(s, [63, 76, 88], [], false); row(s, [-88, -76, -63], [], false);
@@ -573,6 +581,7 @@ function buildWorld() {
   }
 }
 buildWorld();
+drawMarkings();
 
 // ───────────────────────── markers, floating text, puffs
 function markerMat(bg, draw) {
@@ -586,6 +595,9 @@ function markerMat(bg, draw) {
 const MARK = {
   foreign: markerMat('#ef476f', g => { g.font = '900 78px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('!', 64, 68); }),
   neighbour: markerMat('#2ec4b6', g => { g.beginPath(); g.moveTo(64, 30); g.lineTo(98, 62); g.lineTo(88, 62); g.lineTo(88, 94); g.lineTo(40, 94); g.lineTo(40, 62); g.lineTo(30, 62); g.closePath(); g.fill(); }),
+  family: markerMat('#9b5de5', g => { g.beginPath(); g.moveTo(64, 30); g.lineTo(98, 62); g.lineTo(88, 62); g.lineTo(88, 94); g.lineTo(40, 94); g.lineTo(40, 62); g.lineTo(30, 62); g.closePath(); g.fill(); }),
+  seek: markerMat('#2ec4b6', g => { g.font = '900 64px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('P?', 64, 68); }),
+  famSeek: markerMat('#9b5de5', g => { g.font = '900 64px Fredoka, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('P?', 64, 68); }),
   mine: markerMat('#f4a261', g => { g.font = '700 70px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('★', 64, 68); }),
 };
 
@@ -698,9 +710,9 @@ const NEIGHBOURS = [ // home: x of their house (they prefer bays near it)
   { name: 'Florence', color: '#eeeeee', type: 'hatch' },
   { name: 'Le père', color: '#8a8f94', type: 'hatch', home: -25 },
   // Erika's household
-  { name: 'Clément', model: buildPolo, home: -30, dented: true }, // battered grey VW Polo 2015: breaks down every time he parks
-  { name: 'Léa', color: '#b7d3e8', type: 'mini', home: -30 },
-  { name: 'Kévin', model: buildZ4, home: -30 }, // black BMW Z4 E89
+  { name: 'Clément', model: buildPolo, home: -30, dented: true, family: true }, // battered grey VW Polo 2015: breaks down every time he parks
+  { name: 'Léa', color: '#b7d3e8', type: 'mini', home: -30, family: true },
+  { name: 'Kévin', model: buildZ4, home: -30, family: true }, // black BMW Z4 E89
 ];
 const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 14);
 function buildCar(color, type) {
@@ -735,6 +747,9 @@ function addCar(kind, color, type, m = buildCar(color, type)) {
   c.marker = new THREE.Sprite(MARK[kind]);
   c.marker.scale.setScalar(kind === 'neighbour' ? 0.9 : 1.1); c.marker.renderOrder = 5;
   g.add(c.marker);
+  const bw = (m.w ?? CAR_TYPES[type]?.w ?? 1.8) / 2, bl = len / 2; // turn signals at the four corners (local -z = left)
+  c.blink = { [-1]: [], [1]: [] };
+  for (const sz of [-1, 1]) for (const sx of [-1, 1]) { const b = box(g, 0.16, 0.1, 0.16, BLINK, sx * (bl - 0.05), 0.72, sz * (bw - 0.05)); b.visible = b.castShadow = false; c.blink[sz].push(b); }
   cars.push(c);
   return c;
 }
@@ -909,7 +924,8 @@ function leaveStreet(c) {
     score = Math.max(0, score - NEIGHBOUR_FINE); SFX.fine();
     toast(`${c.name} n’a pas trouvé de place dans la rue ! −${NEIGHBOUR_FINE}`);
   }
-  c.state = 'away'; c.timer = c.kind === 'neighbour' ? rand(90, 180) : rand(15, 60); c.mesh.visible = false;
+  if (c.kind === 'neighbour') c.back = elapsed + rand(40, 90); // away for a while, then the spawner may call them home
+  c.state = 'away'; c.timer = c.kind === 'neighbour' ? Infinity : rand(15, 60); c.mesh.visible = false;
 }
 function startPark(c) {
   const s = c.slot, lz = laneZ(c), d = c.dir;
@@ -971,7 +987,7 @@ function updateAI(c, dt) {
     case 'leave':
       if (followPath(c, dt, t => t * t)) {
         if (c.kind === 'foreign') { floatText('Place libérée !', c.slot.x, 3.2, c.slot.z, '#8ef0a8'); SFX.free(); }
-        c.slot.ai = null; c.slot = null; c.state = 'drive'; c.wantsSlot = false; c.speed = 4;
+        if (c.slot) { c.slot.ai = null; c.slot = null; } c.state = 'drive'; c.wantsSlot = false; c.speed = 4;
       }
       return;
   }
@@ -1013,13 +1029,18 @@ function updateAI(c, dt) {
     floatText(pick(['Tût tût !', 'Pouet pouet !', 'Tuuut !']), c.x, 3, c.z, '#ffd166');
   }
 }
-// 0 = calm, 1 = rush hour: ~2.5 min waves (short rushes, longer calm spells) that grow stronger over the first minutes
+// 0 = calm, 1 = rush hour: some traffic from the start (0.12), then ~2.5 min waves (short rushes, longer calm spells) growing over the first minutes
 let trafficForced = null; // debug.trafic(v) pins it
-const traffic = () => trafficForced ?? clamp((elapsed - 45) / 300, 0, 1) * (0.25 + 0.75 * (0.5 - 0.5 * Math.cos(elapsed * 2 * Math.PI / 150)) ** 2);
-function spawner(dt) {
+const traffic = () => trafficForced ?? 0.12 + 0.88 * clamp((elapsed - 30) / 240, 0, 1) * (0.25 + 0.75 * (0.5 - 0.5 * Math.cos(elapsed * 2 * Math.PI / 150)) ** 2);
+function spawner(dt) { // arrivals: 70% strangers (some just pass by on Rue du Centre), 20% neighbours, 10% Erika's household
   if ((spawnT -= dt) > 0) return;
-  spawnT = (14 - 11.5 * traffic()) * rand(0.7, 1.3);
-  if (cars.filter(c => c.kind === 'foreign').length > 24) return;
+  spawnT = (9 - 8.1 * traffic()) * rand(0.8, 1.2); // ~9 s apart when calm, a continuous stream at rush hour
+  const r = Math.random();
+  if (r >= 0.7) {
+    const fam = r >= 0.9, due = cars.filter(c => c.kind === 'neighbour' && c.state === 'away' && !!c.family === fam && elapsed > c.back);
+    if (due.length) { pick(due).timer = 0; return; } // updateAI brings them in
+  }
+  if (cars.filter(c => c.kind === 'foreign').length > 45) return;
   const c = addCar('foreign', pick(AI_COLORS), pick(['hatch', 'hatch', 'mpv', 'suv', 'mini']));
   if (!enterStreet(c, Math.random() < 0.3 ? pick([0, -1]) : 1)) { scene.remove(c.mesh); cars.pop(); } // 30%: just passing on Rue du Centre
 }
@@ -1138,9 +1159,10 @@ function walk(dt) {
   pushOut(player);
 }
 const pedFree = (x, z) => Math.abs(z) < WALL_Z - 0.45 && Math.abs(x) < 60 && !cars.some(o => o.state !== 'away' && pedPush({ x, z }, o));
+const movable = c => c.kind === 'mine' && !c.taken || c.family && c.state === 'parked'; // her cars, and the household's parked ones
 const nearestMine = () => { // measured to the nearest collision circle, so the long truck works from either end
   let best = null, bd = 2.2;
-  for (const c of cars) if (c.kind === 'mine' && !c.taken) for (const [x, z, r] of circles(c)) { const d = Math.hypot(x - player.x, z - player.z) - r; if (d < bd) { bd = d; best = c; } }
+  for (const c of cars) if (movable(c)) for (const [x, z, r] of circles(c)) { const d = Math.hypot(x - player.x, z - player.z) - r; if (d < bd) { bd = d; best = c; } }
   return best;
 };
 const nearBin = () => bins.find(b => Math.hypot(b.x - player.x, b.z - player.z) < 1.8);
@@ -1163,6 +1185,7 @@ function actionE() {
     }
     if (c) {
       driving = c; c.speed = 0; c.rest = { x: c.x, z: c.z, ang: c.ang }; person.g.visible = false; SFX.door();
+      if (c.family) { if (c.slot) { c.slot.ai = null; c.slot = null; } c.state = 'driven'; } // the AI leaves it alone meanwhile
       if (c.truck) c.smokeT = 8;
       if (c.smoky) { c.cough = 1.4; c.smokeT = 0; SFX.crank(); }
     }
@@ -1178,12 +1201,23 @@ function actionE() {
     const x = c.x + cs * a - sn * l, z = c.z - sn * a - cs * l;
     if (!pedFree(x, z)) continue;
     player.x = x; player.z = z; c.speed = 0; driving = null; person.g.visible = true; SFX.door();
+    if (c.family) return settleFamily(c);
     if (!slots.some(s => covers(c, s))) return sendHome(c);
     const n = slots.filter(s => covers(c, s) && (!s.ai || s.ai.state === 'drive')).length;
     if (n) { floatText(n > 1 ? `${n} places bloquées !` : 'Place bloquée !', c.x, c.markY + 0.4, c.z, '#ffd166'); puff(c.x, c.z, 4 + n, '#fff3c4'); SFX.block(); }
     return;
   }
   toast('Pas la place de descendre ici');
+}
+// a household car Erika moved parks again in the bay it now covers (or goes back where it was), then carries on as before
+function settleFamily(c) {
+  const bay = () => slots.find(q => covers(c, q) && (!q.ai || q.ai.state === 'drive'));
+  let s = bay();
+  if (!s) { sendHome(c); s = bay(); }
+  if (s?.ai) { s.ai.slot = null; s.ai = null; } // a stranger heading for it looks elsewhere
+  Object.assign(c, { state: 'parked', slot: s ?? null, speed: 0 });
+  if (s) s.ai = c;
+  floatText(`Voiture de ${c.name} déplacée`, c.x, c.markY + 0.4, c.z, '#c9a7ff');
 }
 // a car left on the road goes back to where it was parked (or the nearest free spot if that's been taken)
 function sendHome(c) {
@@ -1314,8 +1348,10 @@ function buyMeter() {
   SFX.buy();
 }
 // extra bays for sale, in this order: clear of the gates (≥2.1 m), of the walkers' crossing at x=30 and of the zebras
-const BAY_SITES = [[1, [9.5, 14.9]], [-1, [13.5, 18.9]], [-1, [33.8, 39.2, 44.6]]];
-const baysPrice = () => 3000 * 2 ** baysBought;
+// [side, bay centres, price]: every free stretch of curb, clear of gates (2.1 m), walkers' crossings and the zebras;
+// sites next to an existing group extend it (contiguous bays, one set of markings)
+const BAY_SITES = [[1, [8.1, 13.5], 3000], [-1, [12.7, 18.1], 5000], [1, [24.9], 6000], [1, [42.9], 6000], [-1, [33.5, 38.9, 44.3], 9000]];
+const baysPrice = () => BAY_SITES[baysBought]?.[2] ?? Infinity;
 function buyBays() {
   const site = BAY_SITES[baysBought], price = baysPrice();
   if (!site) return toast('Plus de places à acheter dans la rue');
@@ -1324,10 +1360,10 @@ function buyBays() {
   const [s, xs] = site, x = (xs[0] + xs.at(-1)) / 2;
   SLOT_XS[s].push(...xs); SLOT_XS[s].sort((a, b) => a - b); resnap();
   for (const q of xs) addSlot(q, s);
-  markings(scene, s, xs); buildStrip();
+  drawMarkings(); buildStrip();
   for (const q of xs) puff(q, s * SLOT_Z, 8, '#fff3c4');
-  floatText(`${xs.length} nouvelles places !`, x, 3.6, s * SLOT_Z, '#ffd166');
-  toast(`${xs.length} places supplémentaires tracées ${s < 0 ? 'de ton côté' : 'en face'}, plus loin dans la rue !`);
+  floatText(xs.length > 1 ? `${xs.length} nouvelles places !` : 'Nouvelle place !', x, 3.6, s * SLOT_Z, '#ffd166');
+  toast(`${xs.length > 1 ? xs.length + ' places supplémentaires tracées' : 'Une place supplémentaire tracée'} ${s < 0 ? 'de ton côté' : 'en face'}, plus loin dans la rue !`);
   SFX.buy();
 }
 
@@ -1366,11 +1402,11 @@ function computeBlocks() {
     if (s.block && (s.ai?.state === 'drive' || s.ai?.state === 'park')) { s.ai.state = 'drive'; s.ai.slot = null; s.ai = null; }
   }
 }
-const SLOT_COLORS = { foreign: '#ef476f', neighbour: '#2ec4b6', mine: '#f4a261', incoming: '#ffb703' };
+const SLOT_COLORS = { foreign: '#ef476f', neighbour: '#2ec4b6', family: '#9b5de5', mine: '#f4a261', incoming: '#ffb703' };
 function paintSlots() {
   const pulse = 0.5 + 0.5 * Math.sin(elapsed * 5);
   for (const s of slots) {
-    const ai = s.ai && s.ai.state !== 'drive' ? s.ai.kind : null;
+    const ai = s.ai && s.ai.state !== 'drive' ? (s.ai.family ? 'family' : s.ai.kind) : null;
     const kind = ai || (s.block && s.block !== player ? 'mine' : s.ai?.kind === 'foreign' ? 'incoming' : null);
     s.ov.material.color.set(kind ? SLOT_COLORS[kind] : '#ffffff');
     s.ov.material.opacity = kind === 'foreign' || kind === 'incoming' ? 0.25 + 0.2 * pulse : kind ? 0.3 : 0.07 + 0.08 * pulse;
@@ -1426,11 +1462,16 @@ function hud(dt) {
     p = n ? `E — laisser ${driving.truck ? 'le camion' : 'la voiture'} ici (${n} place${n > 1 ? 's bloquées' : ' bloquée'})` : 'E — descendre (retour à sa place)';
   }
   else if (binsInHand) p = Math.abs(binsInHand.z) > CURB_Z ? 'B — laisser la poubelle sur le trottoir' : binSlot() ? 'B — bloquer cette place avec la poubelle' : 'Pousse la poubelle sur une place libre ou sur le trottoir';
-  else if (mine) p = `E — conduire ${mine.truck ? 'le camion' : 'cette voiture'}`;
+  else if (mine) p = mine.family ? `E — déplacer la voiture de ${mine.name}` : `E — conduire ${mine.truck ? 'le camion' : 'cette voiture'}`;
   else if (nearBin()) p = 'B — prendre la poubelle';
   $('prompt').textContent = started ? nb(p) : '';
   coach();
   try { if (Math.floor(best) > (+localStorage.getItem('parkingGuardBest') || 0)) localStorage.setItem('parkingGuardBest', Math.floor(best)); } catch {}
+}
+// turn signal (world z side) for a car heading for a bay, pulling into it, or pulling out of it
+function blinkSide(c) {
+  const z = c.state === 'park' ? c.path[3][1] : c.state === 'leave' ? -c.path[0][1] : c.state === 'drive' ? c.slot?.z ?? (c === J && !J.leaving ? J.goal?.z : 0) : 0;
+  return Math.sign(z || 0);
 }
 function sync(dt) {
   for (const c of cars) {
@@ -1439,6 +1480,13 @@ function sync(dt) {
     c.body.position.y = Math.abs(c.speed) > 0.3 ? Math.sin(elapsed * 17 + c.id) * 0.02 : 0;
     c.marker.visible = c.kind !== 'foreign' || c.state === 'park' || c.state === 'parked';
     c.marker.position.y = c.markY + Math.sin(elapsed * 3 + c.id) * 0.12;
+    if (c.kind === 'neighbour') { // a pulsing "P?" while they look for a bay; household cars in purple
+      const seek = c.wantsSlot && ['arrive', 'turn', 'drive'].includes(c.state);
+      c.marker.material = seek ? (c.family ? MARK.famSeek : MARK.seek) : c.family ? MARK.family : MARK.neighbour;
+      c.marker.scale.setScalar(seek ? 1.15 + 0.2 * Math.sin(elapsed * 8) : 0.9);
+    }
+    const bs = Math.sign(Math.cos(c.ang)) * blinkSide(c), on = Math.sin(elapsed * 10) > 0;
+    for (const k of [-1, 1]) for (const b of c.blink[k]) b.visible = on && bs === k;
   }
   person.g.position.set(player.x, 0, player.z);
   belly = Math.max(0, belly - dt * 2.5);
@@ -1459,7 +1507,7 @@ function update(dt) {
   elapsed += dt;
   if (driving) drive(driving, dt); else walk(dt);
   computeBlocks();
-  for (const c of [...cars]) if (c.kind !== 'mine' && c.kind !== 'jack') updateAI(c, dt);
+  for (const c of [...cars]) if (c.kind !== 'mine' && c.kind !== 'jack' && c !== driving) updateAI(c, dt);
   spawner(dt);
   neighbours(dt);
   scoring(dt);
@@ -1851,9 +1899,11 @@ function selfTestEconomy() {
   const f = addCar('foreign', '#888', 'hatch'); placeParked(f, g[0], 999); scoring(0);
   ok(mult === 1 && Math.abs(meterRate - METER_BONUS * (g.length - 1)) < 1e-9, 'no bonus for a bay a stranger sits in');
   leaveStreet(f);
-  buyBays(); ok(slots.length === n0 + 2 && baysPrice() === 6000, 'first bays bought, next ones cost more');
-  buyBays(); buyBays(); const sc = score; buyBays();
-  ok(slots.length === n0 + 7 && score === sc, 'three sites, then nothing left to buy');
+  buyBays(); ok(slots.length === n0 + 2 && baysPrice() === 5000, 'first bays bought, next ones cost more');
+  for (let i = 1; i < BAY_SITES.length; i++) buyBays();
+  const sc = score; buyBays();
+  ok(slots.length === n0 + BAY_SITES.reduce((n, st) => n + st[1].length, 0) && score === sc, 'every site bought, then nothing left to buy');
+  ok([1, -1].every(sd => bayGroups(SLOT_XS[sd]).every(gp => gp.every((x, i) => !i || Math.abs(x - gp[i - 1] - SLOT_LEN) < 1e-9))), 'bought bays extend groups cleanly');
   hud(1); ok($('buyBays').disabled && $('baysPrice').textContent === 'Complet', 'shop says sold out');
   for (const sd of [1, -1]) ok(SLOT_XS[sd].every((x, i, a) => !i || x - a[i - 1] >= SLOT_LEN - 1e-9), 'no overlapping bays');
   const nb = slots.slice(n0);
@@ -1872,7 +1922,38 @@ function selfTestEconomy() {
   ok(t.meter && meters.length === 2, 'the nearest group, a new one, gets the next meter');
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
+// self-check: arrivals mix (70/20/10), Erika moving a household car, the "P?" marker, turn signals. Returns 'ok' or throws.
+function selfTestFamily() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestFamily: ' + m); };
+  if (driving) { driving.speed = 0; actionE(); }
+  W.wait = PA.t = chatT = BAG.t = 1e9;
+  const nbs = cars.filter(c => c.kind === 'neighbour');
+  let nb = 0, fam = 0; const N = 3000;
+  for (let i = 0; i < N; i++) {
+    for (const c of nbs) if (c.state === 'away') Object.assign(c, { back: -1, timer: Infinity });
+    const n0 = cars.length; spawnT = 0; spawner(0);
+    const called = nbs.find(c => c.state === 'away' && c.timer === 0);
+    if (called) called.family ? fam++ : nb++;
+    for (const c of cars.slice(n0)) { scene.remove(c.mesh); cars.splice(cars.indexOf(c), 1); }
+  }
+  ok(Math.abs(nb / N - 0.2) < 0.04 && Math.abs(fam / N - 0.1) < 0.03, `arrivals mix: ${nb} neighbours, ${fam} household out of ${N}`);
+  for (const c of nbs) if (c.state === 'away') c.timer = Infinity;
+  const k = nbs.find(c => c.name === 'Kévin'), [q1, q2] = slots.filter(s => !s.ai && !s.block && s.side === 1);
+  if (k.slot) { k.slot.ai = null; k.slot = null; }
+  placeParked(k, q1, 999); k.mesh.visible = true;
+  Object.assign(player, { x: k.x, z: k.z + k.r + 0.5 }); actionE();
+  ok(driving === k && k.state === 'driven' && !q1.ai, 'Erika drives a household car');
+  Object.assign(k, { x: q2.x, z: parkZ(k, q2.side), ang: 0, speed: 0 }); actionE();
+  ok(!driving && k.state === 'parked' && k.slot === q2 && q2.ai === k, 'it stays parked where she left it');
+  const v = nbs.find(c => c !== k && c.state === 'away'); Object.assign(v, { state: 'drive', wantsSlot: true, x: -40, z: 0, ang: 0 });
+  const f = addCar('foreign', '#888', 'hatch'), q3 = slots.find(s => !s.ai && !s.block && s.side === -1);
+  Object.assign(f, { state: 'drive', x: q3.x - 15, z: 0, ang: 0, slot: q3 }); q3.ai = f;
+  elapsed = 0.05; sync(0);
+  ok(v.marker.material === (v.family ? MARK.famSeek : MARK.seek), 'P? marker on a neighbour looking for a bay');
+  ok(f.blink[-1].every(b => b.visible) && f.blink[1].every(b => !b.visible), 'left signal on for a bay on the left');
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { selfTestFamily, selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -1884,9 +1965,9 @@ function setup() {
   const freeSlot = () => pick(slots.filter(s => !s.ai && !s.block));
   NEIGHBOURS.forEach((n, i) => {
     const c = addCar('neighbour', n.color, n.type, n.model?.(ENV));
-    Object.assign(c, { name: n.name, home: n.home ?? rand(-25, 25), dented: n.dented });
+    Object.assign(c, { name: n.name, home: n.home ?? rand(-25, 25), dented: n.dented, family: n.family, back: rand(10, 40) });
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
-    else { c.state = 'away'; c.timer = rand(30, 150); c.mesh.visible = false; }
+    else { c.state = 'away'; c.timer = Infinity; c.mesh.visible = false; } // the spawner calls them home
   });
   for (const s of [1, -1]) for (const g of GATES[s]) for (const dx of Math.random() < 0.25 ? [2.4, 3.5] : [2.4])
     putBin(newBin('#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])), g + dx, s * BIN_Z);
