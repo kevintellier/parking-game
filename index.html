@@ -21,6 +21,7 @@
   #strip .row { display: flex; gap: 5px; }
   #strip .row .gap { width: 10px; }
   #strip .s { width: 18px; height: 11px; border-radius: 3px; background: rgba(255,255,255,.18); transition: background .25s; }
+  #strip .s.m { box-shadow: 0 0 0 2px #4ea8ff; }
   #banner { position: fixed; top: 90px; left: 50%; transform: translateX(-50%) scale(.9); padding: 8px 22px; border-radius: 999px; font-weight: 700; letter-spacing: .06em; background: linear-gradient(90deg, #06d6a0, #2ec4b6); color: #0b2a24; box-shadow: 0 0 30px rgba(6,214,160,.6); opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none; }
   #banner.on { opacity: 1; transform: translateX(-50%) scale(1); }
   #shop { right: 16px; bottom: 16px; padding: 12px; display: grid; gap: 8px; width: 220px; }
@@ -68,6 +69,8 @@
   <button id="buyCar"><span><kbd>1</kbd>🚗 Car</span><span class="price" id="carPrice"></span></button>
   <button id="buyTruck"><span><kbd>2</kbd>🚚 Truck</span><span class="price" id="truckPrice"></span></button>
   <button id="buyFerrari"><span><kbd>3</kbd>🏎️ Ferrari F430</span><span class="price" id="ferrariPrice"></span></button>
+  <button id="buyMeter"><span><kbd>4</kbd>🅿️ Borne payante</span><span class="price" id="meterPrice"></span></button>
+  <button id="buyBays"><span><kbd>5</kbd>🛣️ Places en plus</span><span class="price" id="baysPrice"></span></button>
   <div id="inv"></div>
 </div>
 <div id="help" class="panel">
