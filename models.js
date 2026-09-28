@@ -414,3 +414,110 @@ export function buildSpring(env) {
   box(M('#f4f4f2'), 0.02, 0.1, 0.46, -L - 0.01, 0.6, 0);
   return { g, body, len, w };
 }
+
+// ───────────── Citroën Xsara Picasso (picasso.jpg): one-box MPV, grey-blue metallic. The shell is a loft of superellipse
+// cross-sections along x (roof-line profile, flat-cut wheel arches, rounded nose and tail caps). Paint, glass, lights and
+// trim are textures (colour, emissive, roughness/metalness) computed per texel from 3D rules on the surface point.
+export function buildPicasso(env) {
+  const len = 4.28, w = 1.75, L = len / 2, W = w / 2, wheelR = 0.315, tw = 0.2, axles = [1.33, -1.43], B0 = 0.22, NX = 160, NT = 64;
+  const g = new THREE.Group(), body = new THREE.Group(), E = { envMap: env }; g.add(body);
+  const cl = v => Math.min(1, Math.max(0, v));
+  // roof line, nose → tail: short sloping bonnet, very long raked windscreen, flat roof, near-vertical tailgate
+  const prof = once('picProf', () => new THREE.SplineCurve([[2.25, 0.7], [2.14, 0.73], [1.9, 0.81], [1.55, 0.9], [1.25, 0.985], [0.95, 1.14], [0.6, 1.34],
+    [0.25, 1.52], [0, 1.6], [-0.4, 1.63], [-1.2, 1.635], [-1.7, 1.61], [-1.95, 1.55], [-2.1, 1.47], [-2.25, 1.4]].map(([x, y]) => new THREE.Vector2(x, y))).getSpacedPoints(600));
+  const topAt = x => { const i = prof.findIndex(p => p.x <= x); if (i < 1) return prof.at(i).y; const a = prof[i - 1], b = prof[i]; return a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x); };
+  // cross-section at s ∈ [0,1]: centre c, half-height h, half-width hw, arch cut B. The last 28 cm (tail) and 40 cm (nose)
+  // are caps where the section shrinks (scale f) along a quarter superellipse, spaced by angle so the end faces get texels too.
+  const col = s => {
+    let x = -L + 0.28 + (s - 0.12) / 0.74 * (len - 0.68), f = 1;
+    if (s < 0.12 || s > 0.86) {
+      const [q, d, m, dir] = s < 0.12 ? [1 - s / 0.12, 0.28, 3, -1] : [(s - 0.86) / 0.14, 0.4, 2.5, 1], a = q * PI / 2, r = (Math.cos(a) ** m + Math.sin(a) ** m) ** (-1 / m);
+      x = dir * (L - d + d * r * Math.sin(a)); f = r * Math.cos(a);
+    }
+    const T = topAt(x), hw = W * f * (1 - 0.15 * cl((x - 1.2) / 0.94) ** 2 - 0.06 * cl((-1.75 - x) / 0.39) ** 2);
+    const B = Math.max(B0, ...axles.map(a => Math.abs(x - a) < 0.375 ? wheelR + Math.sqrt(0.375 ** 2 - (x - a) ** 2) : 0));
+    return { x, T, c: (T + B0) / 2, h: (T - B0) / 2 * f, hw, B };
+  };
+  // point at angle th (−π/2 = bottom, 0 = +z side, π/2 = roof); returns [x, y, z, |cz|] with cz the section's sideways-ness
+  const pt = (k, th) => {
+    const sn = Math.sin(th), cs = Math.cos(th), n = sn > 0 ? 5 : 4, r = (Math.abs(cs) ** n + Math.abs(sn) ** n) ** (-1 / n), cy = r * sn, cz = r * cs;
+    const y = k.c + k.h * cy;
+    return [k.x, Math.max(y, k.B), cz * k.hw * (1 - 0.15 * cl((y - 0.98) / 0.64)), Math.abs(cz)];
+  };
+  const shell = once('picShell', () => {
+    const pos = [], uv = [], idx = [], geo = new THREE.BufferGeometry();
+    for (let i = 0; i < NX; i++) { const k = col(i / (NX - 1)); for (let j = 0; j <= NT; j++) { pos.push(...pt(k, -PI / 2 + 2 * PI * j / NT).slice(0, 3)); uv.push(i / (NX - 1), j / NT); } }
+    for (let i = 0; i < NX - 1; i++) for (let j = 0; j < NT; j++) { const a = i * (NT + 1) + j, b = a + NT + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx);
+    geo.computeVertexNormals(); return geo;
+  });
+  // skin: [colour, emissive, roughness, metalness]; null = paint
+  const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const [PAINT, GLASS, BLACK, GREY, CHROME, HEAD, TAIL, PLATE] = [['#48505a', '#000000', 0.3, 0.5], ['#141d25', '#000000', 0.05, 0.5], ['#141517', '#000000', 0.75, 0], ['#2b2d30', '#000000', 0.55, 0.1],
+    ['#d9dee2', '#000000', 0.15, 1], ['#dfe7ee', '#50565e', 0.05, 0.5], ['#a3121a', '#6a0508', 0.1, 0.2], ['#f1f1ec', '#000000', 0.5, 0]].map(([c, e, r, m]) => [rgb(c), rgb(e), r * 255, m * 255]);
+  const skin = (x, y, az, cz, T) => {
+    const belt = 0.985 - 0.012 * x;
+    if (x > 1.85) { // nose: black lower intake, fog lights, plate, slim grille with the double chevron
+      if (y < 0.3 || (x > 1.95 && y < 0.46 && az < 0.52)) return BLACK;
+      if (Math.hypot(az - 0.64, y - 0.4) < 0.05) return HEAD;
+      if (x > 2.03 && az < 0.25 && y > 0.49 && y < 0.58) return PLATE;
+      if (az < 0.3 && y > 0.63 && y < 0.73) return az < 0.1 && [0, 1].some(k => Math.abs(y - (0.68 + 0.035 * k - 0.28 * az)) < 0.008) ? CHROME : BLACK;
+    }
+    if (x > 1.6 && az > 0.3 && y > 0.6 + 0.5 * Math.max(0, 1.95 - x) && y < T - 0.035) return HEAD; // big headlights swept up the wings
+    if (x < -1.97) { // tailgate
+      if (y < 0.36) return BLACK;
+      if (y > 1.07 && y < 1.5 && az < 0.58) return GLASS;
+      if (y > 0.82 && y < 1.3 && az > 0.5) return TAIL;
+      if (az < 0.24 && y > 0.84 && y < 0.96) return PLATE;
+      return az < 0.05 && y > 1.0 && y < 1.04 ? CHROME : null;
+    }
+    if (y > belt && x > 0 && x < 1.32 && cz < 0.82) return cz > 0.74 || x < 0.08 || y < belt + 0.03 ? BLACK : GLASS; // windscreen
+    if (y > belt && x > -1.95 && x < 1.32) { // side glass: quarter light, two doors, rear quarter
+      if (cz < 0.9) return null;
+      if (cz < 0.92 || y < belt + 0.015 || (x > 0.7 && x < 0.76) || (x > -0.42 && x < -0.3) || (x > -1.33 && x < -1.25)) return BLACK;
+      return GLASS;
+    }
+    if (cz > 0.9 && y > 0.5 && y < 0.57 && x > -1.02 && x < 0.95) return GREY; // rubbing strip
+    if (cz > 0.85 && y > 0.3 && [0.73, -0.36, -1.28].some(d => Math.abs(x - d) < 0.006)) return BLACK; // door shut lines
+    if (cz > 0.9 && y > 0.88 && y < 0.925 && ((x > -0.2 && x < -0.06) || (x > -1.2 && x < -1.06))) return BLACK; // handles
+    return null;
+  };
+  const [map, emi, rm] = once('picTex', () => {
+    const TW = 1024, TH = 512, d = [0, 1, 2].map(() => new Uint8Array(TW * TH * 4));
+    for (let px = 0; px < TW; px++) {
+      const k = col((px + 0.5) / TW);
+      for (let py = 0; py < TH; py++) {
+        const [x, y, z, cz] = pt(k, -PI / 2 + 2 * PI * (py + 0.5) / TH), m = skin(x, y, Math.abs(z), cz, k.T) || PAINT, o = (py * TW + px) * 4; d[0].set([...m[0], 255], o); d[1].set([...m[1], 255], o); d[2].set([0, m[2], m[3], 255], o);
+      }
+    }
+    return d.map((a, i) => {
+      const t = new THREE.DataTexture(a, TW, TH); if (i < 2) t.colorSpace = THREE.SRGBColorSpace;
+      t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = 4; t.needsUpdate = true; return t;
+    });
+  });
+  const p = M('#48505a', { roughness: 0.3, metalness: 0.5, ...E }), black = M('#141517', { roughness: 0.7 });
+  add(body, shell, M('#ffffff', { map, emissiveMap: emi, emissive: '#ffffff', roughnessMap: rm, metalnessMap: rm, roughness: 1, metalness: 1, ...E }));
+  for (const k of [-1, 1]) {
+    add(body, S(), p, 0.64, 1.1, k * 0.97, [0.09, 0.09, 0.13]); // body-colour mirrors on black stalks
+    add(body, G(THREE.BoxGeometry, 0.1, 0.04, 0.14), black, 0.67, 1.05, k * 0.87);
+    add(body, G(THREE.BoxGeometry, 0.02, 0.012, 0.5), black, 1.2, 1.02, k * 0.22).rotation.set(0, k * 0.15, -0.45); // wipers
+  }
+  // wheels (unsprung), dark arch liners
+  const rim = rimTex('picRim', (c, r) => { // silver hubcap
+    c.fillStyle = '#b9bec3'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill(); c.fillStyle = '#34373b';
+    for (let i = 0; i < 10; i++) { c.rotate(PI / 5); c.beginPath(); c.ellipse(0, r * 0.62, 5, 16, 0, 0, 2 * PI); c.fill(); }
+    c.strokeStyle = '#7d8388'; c.lineWidth = 4; c.beginPath(); c.arc(0, 0, r - 5, 0, 2 * PI); c.stroke();
+    c.fillStyle = '#8d9398'; c.beginPath(); c.arc(0, 0, 14, 0, 2 * PI); c.fill();
+  });
+  const tire = once('tire' + wheelR + tw, () => new THREE.CylinderGeometry(wheelR, wheelR, tw, 22).rotateX(PI / 2)), disc = once('disc' + wheelR, () => new THREE.CircleGeometry(wheelR * 0.68, 20));
+  const liner = once('picLiner', () => new THREE.CylinderGeometry(0.37, 0.37, w - 0.12, 16, 1, true, PI / 2, PI).rotateX(PI / 2));
+  for (const x of axles) {
+    add(body, liner, M('#0d0d0e', { side: THREE.DoubleSide }), x, wheelR, 0);
+    for (const s of [-1, 1]) {
+      const z = s * (W - tw / 2 - 0.03);
+      add(g, tire, M('#18181a', { roughness: 0.9 }), x, wheelR, z);
+      add(g, disc, rim, x, wheelR, z + s * (tw / 2 + 0.003)).rotation.y = s > 0 ? 0 : PI;
+    }
+  }
+  return { g, body, len, w };
+}
