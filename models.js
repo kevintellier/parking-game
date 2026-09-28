@@ -357,6 +357,104 @@ export function buildBMW(env) {
   return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.05, 0.38, 0.55) };
 }
 
+// ───────────── Clément's grey VW Polo (6C, 2015, 5-door), battered: dents, primer door, taped headlight, hanging bumper, odd steel wheel
+const vwLogo = () => M('#ffffff', { roughness: 0.3, metalness: 0.7, map: tex('vwLogo', 64, 64, c => {
+  c.fillStyle = '#c9ced3'; c.beginPath(); c.arc(32, 32, 31, 0, 2 * PI); c.fill();
+  c.strokeStyle = '#2d3136'; c.lineWidth = 4; c.beginPath(); c.arc(32, 32, 27, 0, 2 * PI);
+  c.moveTo(19, 11); c.lineTo(32, 38); c.lineTo(45, 11); c.moveTo(9, 22); c.lineTo(21, 50); c.lineTo(32, 30); c.lineTo(43, 50); c.lineTo(55, 22); c.stroke();
+}) });
+const frPlate = () => M('#ffffff', { roughness: 0.5, map: tex('frPlate', 256, 56, (c, w, h) => {
+  c.fillStyle = '#f6f6f2'; c.fillRect(0, 0, w, h); c.fillStyle = '#1f3fa6'; c.fillRect(0, 0, 22, h); c.fillRect(w - 22, 0, 22, h);
+  c.fillStyle = '#111'; c.font = 'bold 34px monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('DZ-815-CL', w / 2, h / 2 + 2);
+}) });
+export function buildPolo(env) {
+  const len = 3.97, w = 1.68, sill = 0.26, belt = 0.95, bh = belt - sill, cy = sill + bh / 2, L = len / 2, fx = 1.0, hood = 0.13, rearX = -1.25;
+  // dents [x, y, z, radius, depth, push direction] in car space
+  const dents = [[0.3, 0.62, w / 2, 0.22, 0.08, 0, 0, -1], [1.55, 0.74, 0.81, 0.15, 0.05, 0, -0.3, -1], [1.2, 0.9, -0.3, 0.22, 0.05, 0, -1, 0],
+    [-1.62, 0.72, w / 2, 0.18, 0.08, 0, 0, -1], [-0.62, 0.52, -w / 2, 0.22, 0.09, 0, 0, 1], [-L, 0.55, 0.35, 0.18, 0.05, 1, 0, 0], [1.7, 0.6, -0.8, 0.16, 0.06, -0.4, 0, 0.9]];
+  once('polobody', () => { // rounded box by hand (dense grid so dents show), nose drops and narrows, shoulder crease, dents
+    const r = 0.12, geo = new THREE.BoxGeometry(len, bh, w, 60, 10, 26), v = geo.attributes.position, p = new THREE.Vector3(), q = new THREE.Vector3(), cl = THREE.MathUtils.clamp;
+    for (let i = 0; i < v.count; i++) {
+      p.fromBufferAttribute(v, i);
+      q.set(cl(p.x, r - L, L - r), cl(p.y, r - bh / 2, bh / 2 - r), cl(p.z, r - w / 2, w / 2 - r)); p.sub(q).setLength(r).add(q);
+      const f = cl((p.x - fx) / (L - fx), 0, 1);
+      p.y -= hood * f * (p.y / bh + 0.5); p.z *= 1 - 0.06 * f * f;
+      if (p.y + cy > 0.8 && Math.abs(p.z) > w / 2 - 0.1) p.z += Math.sign(p.z) * 0.01;
+      for (const [x, y, z, rad, d, nx, ny, nz] of dents) { const k = d * Math.exp(-((p.x - x) ** 2 + (p.y + cy - y) ** 2 + (p.z - z) ** 2) / rad ** 2); p.x += nx * k; p.y += ny * k; p.z += nz * k; }
+      v.setXYZ(i, p.x, p.y, p.z);
+    }
+    geo.computeVertexNormals(); return geo;
+  });
+  const cap = rimTex('poloCap', (c, r) => { // Trendline plastic wheel cover
+    c.fillStyle = '#b9bec3'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill(); c.fillStyle = '#2b2d30';
+    for (let i = 0; i < 12; i++) { c.rotate(PI / 6); c.fillRect(-4, r * 0.4, 8, r * 0.45); }
+    c.fillStyle = '#8d9297'; c.beginPath(); c.arc(0, 0, 14, 0, 2 * PI); c.fill();
+  });
+  const { g, body, p, E } = carBase(env, 'polo', { len, w, sill, belt, hood, cab: [-1.88, fx, 0.1, -1.65, 0.48], paint: '#50555b', wheelR: 0.3, tw: 0.19, axles: [1.22, rearX], rim: cap });
+  body.children[0].material = M('#ffffff', { roughness: 0.25, metalness: 0.65, ...E, map: tex('poloScratch', 512, 256, (c, w, h) => {
+    c.fillStyle = '#50555b'; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 40; i++) { // key scratches, scuffs
+      const x = Math.random() * w, y = Math.random() * h, a = (Math.random() - 0.5) * 0.6, l = 10 + Math.random() * 90;
+      c.strokeStyle = Math.random() < 0.7 ? '#9ba0a6' : '#34383c'; c.lineWidth = Math.random() < 0.8 ? 1 : 2;
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
+    }
+    for (let i = 0; i < 6; i++) { // rust spots
+      const x = Math.random() * w, y = Math.random() * h, r = 2 + Math.random() * 6;
+      c.fillStyle = '#7a5236'; c.beginPath(); c.arc(x, y, r, 0, 2 * PI); c.fill(); c.fillStyle = '#4a2e1c'; c.beginPath(); c.arc(x, y, r / 2, 0, 2 * PI); c.fill();
+    }
+  }) });
+  g.children.find(m => m.material === cap && m.position.x === rearX && m.position.z > 0).material = rimTex('poloSteel', (c, r) => { // bare black steel wheel, lost its cover
+    c.fillStyle = '#26272a'; c.beginPath(); c.arc(0, 0, r, 0, 2 * PI); c.fill(); c.fillStyle = '#0b0b0c';
+    for (let i = 0; i < 8; i++) { c.rotate(PI / 4); c.beginPath(); c.arc(0, r * 0.58, 8, 0, 2 * PI); c.fill(); }
+    c.fillStyle = '#6b4a33'; c.beginPath(); c.arc(0, 0, 22, 0, 2 * PI); c.fill(); c.fillStyle = '#9a9ea2';
+    for (let i = 0; i < 5; i++) { c.rotate(2 * PI / 5); c.beginPath(); c.arc(0, 15, 4, 0, 2 * PI); c.fill(); }
+  });
+  const box = (m, sx, sy, sz, x, y, z, par = body) => add(par, G(THREE.BoxGeometry, sx, sy, sz), m, x, y, z);
+  const rbox = (m, sx, sy, sz, r, x, y, z, par = body) => add(par, G(RoundedBoxGeometry, sx, sy, sz, 2, r), m, x, y, z);
+  const black = M('#16171a', { roughness: 0.6 }), chrome = M('#d2d6da', { roughness: 0.2, metalness: 1, ...E }), tape = M('#b4b7b2', { roughness: 0.55, metalness: 0.3 });
+  const glass = M('#dfe6ee', { roughness: 0.1, metalness: 0.5, ...E }), red = M('#a3161a', { emissive: '#d01010', emissiveIntensity: 0.5, roughness: 0.3 });
+  const cracked = M('#ffffff', { roughness: 0.15, metalness: 0.3, map: tex('poloCrack', 64, 32, (c, w, h) => {
+    c.fillStyle = '#dde3ea'; c.fillRect(0, 0, w, h); c.strokeStyle = '#3a4048'; c.lineWidth = 1.2; c.beginPath();
+    for (let i = 0; i < 9; i++) { const a = i * 0.7; c.moveTo(22, 14); c.lineTo(22 + Math.cos(a) * 30, 14 + Math.sin(a) * 18); } c.stroke();
+  }) });
+  const logo = once('vwLogoGeo', () => new THREE.CircleGeometry(0.065, 20));
+  // front: horizontal grille bar with logo, straight-edged headlights (right one cracked and taped)
+  box(black, 0.04, 0.08, 0.62, L - 0.01, 0.66, 0); box(chrome, 0.045, 0.014, 0.62, L - 0.005, 0.705, 0);
+  add(body, logo, vwLogo(), L + 0.02, 0.66, 0).rotation.y = PI / 2;
+  for (const k of [-1, 1]) {
+    const hl = pivot(body, L - 0.04, 0.67, k * 0.57); hl.rotation.y = -k * 0.25;
+    rbox(k > 0 ? cracked : glass, 0.1, 0.12, 0.38, 0.02, 0, 0, 0, hl);
+    if (k > 0) for (const a of [-0.4, 0.4]) box(tape, 0.012, 0.04, 0.4, 0.05, 0, 0, hl).rotation.x = a;
+  }
+  // front bumper, torn off its right clip and hanging
+  const bp = pivot(body, L - 0.01, 0.42, -0.72); bp.rotation.set(0.09, 0.06, 0);
+  rbox(p, 0.18, 0.28, w - 0.06, 0.06, 0, 0, 0.72, bp); box(black, 0.04, 0.09, 0.9, 0.08, -0.07, 0.72, bp);
+  add(bp, G(THREE.PlaneGeometry, 0.52, 0.11), frPlate(), 0.093, 0.05, 0.72).rotation.y = PI / 2;
+  box(tape, 0.22, 0.04, 0.012, L - 0.08, 0.5, w / 2 - 0.1).rotation.z = 0.5;
+  // rear: horizontal tail lights, logo, plate in the tailgate, bumper, exhaust, spoiler
+  for (const k of [-1, 1]) rbox(red, 0.08, 0.14, 0.44, 0.02, -L + 0.05, 0.79, k * 0.58).rotation.y = k * 0.25;
+  add(body, logo, vwLogo(), -L - 0.005, 0.72, 0).rotation.y = -PI / 2;
+  add(body, G(THREE.PlaneGeometry, 0.52, 0.11), frPlate(), -L - 0.005, 0.56, 0).rotation.y = -PI / 2;
+  rbox(p, 0.14, 0.22, w - 0.04, 0.05, -L + 0.02, 0.35, 0); box(black, 0.05, 0.05, 1.1, -L - 0.03, 0.27, 0);
+  add(body, G(THREE.CylinderGeometry, 0.03, 0.03, 0.14, 8), '#3a3a3a', -L - 0.02, 0.24, -0.45).rotation.z = PI / 2;
+  rbox(p, 0.22, 0.05, 1.3, 0.02, -1.7, belt + 0.47, 0);
+  box(black, 0.02, 0.2, 0.02, -1.3, belt + 0.56, 0).rotation.z = 0.5; // antenna
+  // sides: door seams & handles, black B-pillar, painted C-pillar, mirrors (right one dangling)
+  for (const k of [-1, 1]) {
+    for (const x of [0.86, -0.3, -0.95]) box(black, 0.008, 0.46, 0.006, x, 0.6, k * (w / 2 + 0.004));
+    for (const x of [0.35, -0.75]) box(chrome, 0.13, 0.025, 0.025, x, 0.84, k * (w / 2 + 0.012));
+    box(black, 0.09, 0.44, 0.02, -0.34, belt + 0.22, k * 0.7).rotation.x = -k * 0.21;
+    box(p, 0.38, 0.4, 0.02, -1.58, belt + 0.2, k * 0.695).rotation.x = -k * 0.21;
+  }
+  rbox(p, 0.2, 0.12, 0.13, 0.04, 0.9, belt + 0.08, -(w / 2 + 0.06));
+  const mr = pivot(body, 0.9, belt + 0.03, w / 2); mr.rotation.x = 0.9;
+  rbox(p, 0.2, 0.12, 0.13, 0.04, 0, -0.02, 0.08, mr); box(tape, 0.05, 0.012, 0.12, 0, 0.045, 0.05, mr);
+  // mismatched panels: primer rear door (right), wrong-silver front door (left)
+  rbox(M('#8b8d86', { roughness: 0.95 }), 0.6, 0.46, 0.02, 0.008, -0.625, 0.59, w / 2 - 0.006);
+  rbox(M('#6f7a88', { roughness: 0.25, metalness: 0.65, ...E }), 1.1, 0.46, 0.02, 0.008, 0.28, 0.59, -(w / 2 - 0.006));
+  return { g, body, len, w, exhaust: new THREE.Vector3(-L - 0.1, 0.24, -0.45) };
+}
+
 export function buildSpring(env) {
   const len = 3.73, w = 1.58, sill = 0.34, belt = 0.94;
   const rim = rimTex('springRim', (c, r) => { // grey plastic wheel cover
