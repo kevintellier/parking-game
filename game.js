@@ -1277,7 +1277,7 @@ function buyCar() {
   if (score < price) return toast(`Une voiture coûte ${fr(price)} crédits`);
   if (garageBusy()) return toast('Déplace d’abord la voiture garée devant ton garage');
   score -= price; carsOwned++;
-  deliver([buildBMW, buildSpring, buildPicasso][carsOwned - 2]?.(ENV), MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length]);
+  deliver([buildBMW, buildPicasso][carsOwned - 2]?.(ENV), MINE_COLORS[(carsOwned - 1) % MINE_COLORS.length]);
 }
 // bought cars wait in front of Erika's garage for her to park them; some won't start and Stéphane comes
 function deliver(m, color) {
@@ -1996,7 +1996,7 @@ queueMicrotask(() => Object.assign(window.__game, { selfTestSeat, selfTestFamily
 // ───────────────────────── setup
 function setup() {
   const start = slots.find(s => s.side === -1 && s.x === -30.2);
-  const mine = addCar('mine', MINE_COLORS[0], 'hatch');
+  const mine = addCar('mine', null, null, buildSpring(ENV)); // her first car: the grey Dacia Spring
   Object.assign(mine, { x: start.x, z: start.z, ang: parkedAng(start) });
   player.x = start.x + 1.2; player.z = -6.2;
   computeBlocks();
@@ -2136,9 +2136,9 @@ Object.assign(window.__game, { selfTestRules() {
   const home = { x: bmw.x, z: bmw.z };
   bmw.z = 0.3; actionE();
   ok(!driving && Math.hypot(bmw.x - home.x, bmw.z - home.z) < 1e-6, 'car left on the road goes home');
-  bmw.x = -72; buyCar(); const spring = cars.at(-1); // out of the way: Rue du Centre is busy now
-  ok(bmw.smoky && spring.len === 3.73 && !spring.exhaust, 'BMW then Dacia Spring');
-  spring.x = -78;
+  bmw.x = -72; buyCar(); const picasso = cars.at(-1); // out of the way: Rue du Centre is busy now
+  ok(bmw.smoky && picasso.len === 4.28 && cars.some(c => c.kind === 'mine' && c.len === 3.73), 'Dacia Spring at start, then BMW, then Picasso');
+  picasso.x = -78;
   Object.assign(player, { x: -20, z: 0 });
   ok(until(150, () => cars.some(c => c.stuckT > PATIENCE_ON_FOOT)), 'traffic waits behind Erika');
   ok(until(3, () => Math.abs(player.z) > 1.9), 'Erika shoved aside');

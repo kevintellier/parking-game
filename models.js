@@ -147,7 +147,7 @@ export function buildWife() {
   const am = arms(g, { y: 1.33, z: 0.22, len: 0.52, r: 0.055, sleeve: lilac, sleeveLen: 0.12, arm: lilac, hand: skin, splay: 0.12 });
   const h = head(g, { y: 1.52, r, skin });
   add(h, t(), '#b8545e', r * 0.94, -r * 0.45, 0, [r * 0.08, r * 0.07, r * 0.24]); // lips
-  shell(h, r, [0, 2 * PI, 0, 1.6], [1.16, 1.14, 1.2], '#cdb68a', -0.012, 0.012).rotation.z = 0.45; // bob
+  shell(h, r, [0, 2 * PI, 0, 1.6], [1.16, 1.14, 1.2], '#6b4428', -0.012, 0.012).rotation.z = 0.45; // brown bob
   g.scale.setScalar(1.3);
   return { g, legs: lg, arms: am };
 }
@@ -633,7 +633,7 @@ export function buildPolo(env) {
 }
 
 // ───────────── a stranger's black Seat Leon Cupra, tuned: lowered, black wheels, twin big pipes, roof spoiler, dark tint,
-// Portuguese flag sticker on the rear window and on a roof-antenna. flames: backfire cones at the pipes, hidden until game.js flashes them.
+// Portuguese flag on the bonnet, a sticker on the rear window and on a roof-antenna. flames: backfire cones at the pipes, hidden until game.js flashes them.
 const ptFlag = () => M('#ffffff', { roughness: 0.6, side: THREE.DoubleSide, map: tex('ptFlag', 96, 64, (c, w, h) => {
   c.fillStyle = '#046a38'; c.fillRect(0, 0, w * 0.4, h); c.fillStyle = '#da291c'; c.fillRect(w * 0.4, 0, w * 0.6, h);
   c.strokeStyle = '#ffe000'; c.lineWidth = 3; c.beginPath(); c.arc(w * 0.4, h / 2, 15, 0, 2 * PI); c.stroke(); // armillary sphere
@@ -699,6 +699,8 @@ export function buildSeat(env) {
   const a = Math.atan2(trx - rx, h * 0.96), st = pivot(body, rx + (trx - rx) * 0.6 - 0.012 * Math.cos(a), belt - 0.02 + h * 0.96 * 0.6 + 0.012 * Math.sin(a), -0.35);
   st.rotation.z = -a; add(st, G(THREE.PlaneGeometry, 0.27, 0.18), ptFlag()).rotation.y = -PI / 2;
   box(black, 0.015, 0.5, 0.015, -1.45, belt + h + 0.25, 0.3); add(body, G(THREE.PlaneGeometry, 0.27, 0.18), ptFlag(), -1.59, belt + h + 0.4, 0.3);
+  const hf = pivot(body, (fx + L) / 2, belt - hood / 2 + 0.006, 0); hf.rotation.z = -Math.atan2(hood, L - fx); // flag on the sloping bonnet, upright seen from the front
+  add(hf, G(THREE.PlaneGeometry, 0.8, 0.53), ptFlag()).rotation.set(-PI / 2, 0, PI / 2);
   // backfire flames, pointing back out of both pipes
   const flames = pivot(body, -L - 0.1, 0.24, 0); flames.visible = false; flames.userData.flames = true;
   for (const k of [-1, 1]) for (const [r, l, col] of [[0.07, 0.42, '#ff3c00'], [0.04, 0.28, '#fff07a']]) {
