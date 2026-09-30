@@ -824,7 +824,7 @@ function followPath(c, dt, ease) {
 function findSlot(c) {
   let best = null, bs = Infinity;
   for (const s of slots) {
-    if (s.ai || s.block) continue;
+    if (s.ai || s.block && s.block !== player || s === c.snub) continue; // Erika on foot doesn't put them off: they try, and bounce
     const rem = (s.x - c.x) * c.dir;
     if (rem < 10 || rem > 45) continue;
     const sc = c.kind === 'neighbour' ? Math.abs(s.x - c.home) : rem;
@@ -953,7 +953,7 @@ const patience = who => who === player ? PATIENCE_ON_FOOT : PATIENCE;
 const touchesBelly = c => !driving && pedPush({ x: player.x, z: player.z }, c, P_R + 0.12);
 function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off her belly and gives up the bay
   const dx = c.x - player.x, dz = c.z - player.z, d = Math.hypot(dx, dz) || 1;
-  c.slot.ai = null; c.slot = null; c.state = 'drive'; c.speed = 0;
+  c.snub = c.slot; c.slot.ai = null; c.slot = null; c.state = 'drive'; // snub: never retry that bay c.speed = 0;
   c.kick = 1; c.kx = dx / d * 3.5; c.kz = dz / d * 3.5; belly = 1;
   SFX.boing(); floatText('Boing !', player.x, 3, player.z, '#ffd166');
 }
@@ -1418,8 +1418,8 @@ function computeBlocks() {
     for (const c of cars) if (c.blocker && covers(c, s)) s.block = c;
     for (const b of bins) if (b.slot === s) s.block = b;
     if (!driving && !s.block && inSlot(player, s)) s.block = player;
-    // a blocker cancels a reservation, even mid-manoeuvre: the car rejoins traffic instead of parking through it
-    if (s.block && (s.ai?.state === 'drive' || s.ai?.state === 'park')) { s.ai.state = 'drive'; s.ai.slot = null; s.ai = null; }
+    // a blocker cancels a reservation, even mid-manoeuvre: the car rejoins traffic instead of parking through it (Erika: it bounces off her belly)
+    if (s.block && s.block !== player && (s.ai?.state === 'drive' || s.ai?.state === 'park')) { s.ai.state = 'drive'; s.ai.slot = null; s.ai = null; }
   }
 }
 const SLOT_COLORS = { foreign: '#ef476f', neighbour: '#2ec4b6', family: '#9b5de5', mine: '#f4a261', incoming: '#ffb703' };
@@ -2153,6 +2153,15 @@ Object.assign(window.__game, { selfTestRules() {
   Object.assign(p, { x: q.x - 8, z: 0, speed: 4, slot: q, state: 'drive' }); q.ai = p; startPark(p);
   Object.assign(player, { x: bez(p.path, 0.3, 0), z: bez(p.path, 0.3, 1) });
   ok(until(5, () => p.state === 'drive') && p.slot !== q && belly > 0, 'parking car bounces off her belly'); // gives up the bay (may reserve another)
+  // she already stands on the bay: the car still reserves it, pulls in, bounces once (one boing) and never retries it
+  for (const c of cars.filter(c => c.kind === 'foreign')) leaveStreet(c);
+  const r = addCar('foreign', '#888', 'hatch'), q2 = slots.find(s => !s.ai && !s.block && Math.abs(s.x) < 30);
+  Object.assign(player, { x: q2.x, z: q2.z }); computeBlocks();
+  ok(q2.block === player, 'Erika holds the bay');
+  Object.assign(r, { x: q2.x - 12, z: 0, dir: 1, ang: 0, speed: 4, state: 'drive', wantsSlot: true, scan: 0, slot: null }); r.mesh.visible = true;
+  const boing = SFX.boing; let n = 0; SFX.boing = () => { n++; boing(); };
+  try { ok(until(1, () => r.slot === q2), 'car picks the bay she stands on'); ok(until(8, () => r.snub === q2) && n === 1 && belly > 0 && r.kick > 0, 'car pulls in and bounces off her belly');
+    ok(!until(4, () => r.slot === q2 || n > 1), 'one boing, no retry'); } finally { SFX.boing = boing; }
   return 'ok';
 } });
 // driving: a car (and the truck) flush against the curb or with a corner in it can still drive, reverse and turn away;
