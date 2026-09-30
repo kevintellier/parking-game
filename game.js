@@ -491,15 +491,22 @@ function buildWorld() {
 
   for (const s of [1, -1]) {
     // asphalt sidewalks, granite kerbs, paved gutters
-    for (const [a, b] of [[-STREET_X, STREET_X], [63, 100], [-100, -63]]) {
+    for (const [a, b] of [[-STREET_X - 1, STREET_X], [63, 100], [-100, -63]]) { // -x end reaches the Rue du Centre kerb
       tbox(S, b - a, 0.15, WALL_Z - CURB_Z, WALK, (a + b) / 2, 0.075, s * (CURB_Z + WALL_Z) / 2);
       box(S, b - a, 0.2, 0.25, '#bdbab2', (a + b) / 2, 0.1, s * CURB_Z);
       box(S, b - a, 0.012, 0.35, '#7b7872', (a + b) / 2, 0.004, s * (CURB_Z - 0.3));
     }
+    // Rue du Centre (x=-58) sidewalks, 1 m each side, open across the crossroads (|z| < CURB_Z); k points at the road
+    for (const [x, k] of [[-52.5, -1], [-63.5, 1]]) {
+      const L = 100 - WALL_Z, l = 100 - CURB_Z;
+      tbox(S, 1, 0.15, L, WALK, x, 0.075, s * (WALL_Z + L / 2));
+      box(S, 0.25, 0.2, l, '#bdbab2', x + k * 0.5, 0.1, s * (CURB_Z + l / 2));
+      box(S, 0.35, 0.012, l, '#7b7872', x + k * 0.8, 0.004, s * (CURB_Z + l / 2));
+    }
     // lots (walls, gates, houses, gardens), a few beyond the cross streets, then a back row
     row(s, CUTS[s], GATES[s]);
-    row(s, [63, 76, 88], [], false); row(s, [-88, -76, -63], [], false);
-    for (const [x, k] of [[-52, 1], [52, -1], [-63, -1], [63, 1]]) {
+    row(s, [63, 76, 88], [], false); row(s, [-88, -76, -64], [], false);
+    for (const [x, k] of [[-52, 1], [52, -1], [-64, -1], [63, 1]]) {
       box(S, 0.3, 0.9, 20, '#ece6d8', x, 0.45, s * (WALL_Z + 10));
       zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * (WALL_Z + 20), 1.7, HEDGES.privet, 0.9);
     }
@@ -543,6 +550,31 @@ function buildWorld() {
   }
   const wx = [-80, ...poleXs, 80];
   for (let i = 0; i < wx.length - 1; i++) for (const oz of [-0.65, 0, 0.65]) wire(V3(wx[i], 8.4, pz + oz), V3(wx[i + 1], 8.4, pz + oz), 0.9);
+
+  // entrance of Rue d'Aguesseau (photo): purple-leaf plums in chestnut-paling pits past the zebra, black white-topped bollards, green lamp post, corner chevron
+  const s0 = seed, BOL = new THREE.CylinderGeometry(0.07, 0.07, 0.85, 8);
+  for (const s of [1, -1]) {
+    const tx = -45.6, tz = s * 6.15;
+    tree(S, tx, tz, 4.6, 'red');
+    box(S, 1.2, 0.02, 1.0, '#5a4636', tx, 0.16, tz);
+    for (const [a, b, c, d] of [[-0.6, -0.5, 0.6, -0.5], [-0.6, 0.5, 0.6, 0.5], [-0.6, -0.5, -0.6, 0.5], [0.6, -0.5, 0.6, 0.5]]) {
+      const n = Math.round(Math.hypot(c - a, d - b) / 0.1);
+      for (let i = 0; i <= n; i++) { const h = sr(0.42, 0.52); box(S, 0.05, h, 0.04, sp(['#8a6a48', '#7a5c3e', '#9a7a56']), tx + a + (c - a) * i / n, 0.15 + h / 2, tz + b + (d - b) * i / n); }
+      for (const y of [0.3, 0.5]) box(S, Math.abs(c - a) + 0.04, 0.015, Math.abs(d - b) + 0.04, '#5b5b58', tx + (a + c) / 2, y, tz + (b + d) / 2);
+    }
+    for (const x of [-51.1, -46.9]) { mesh(S, BOL, '#1d1d1f', x, 0.575, s * (CURB_Z + 0.3)); mesh(S, BALL, '#f2f2ee', x, 1.0, s * (CURB_Z + 0.3)).scale.set(0.5, 0.35, 0.5); }
+  }
+  mesh(S, new THREE.CylinderGeometry(0.18, 0.2, 0.9, 10), '#1f3d2e', -52.5, 0.6, -10);
+  mesh(S, new THREE.CylinderGeometry(0.06, 0.1, 6.6, 8), '#1f3d2e', -52.5, 3.45, -10);
+  box(S, 0.9, 0.06, 0.06, '#1f3d2e', -52.95, 6.7, -10);
+  box(S, 0.4, 0.14, 0.3, '#1f3d2e', -53.35, 6.7, -10); box(S, 0.34, 0.04, 0.24, LAMP, -53.35, 6.62, -10);
+  box(S, 0.06, 1.0, 0.06, '#9aa0a4', -52.6, 0.65, -5.5);
+  const chev = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.6), new THREE.MeshStandardMaterial({ map: canvasTex(128, g => {
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 128, 128); g.fillStyle = '#1f5fbf';
+    g.beginPath(); g.moveTo(40, 64); g.lineTo(84, 20); g.lineTo(104, 20); g.lineTo(60, 64); g.lineTo(104, 108); g.lineTo(84, 108); g.fill();
+  }), roughness: 0.5 }));
+  chev.position.set(-52.65, 1.3, -5.5); chev.rotation.y = -Math.PI / 2; S.add(chev);
+  seed = s0;
 
   // blue Paris-style street sign on the far wall
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.75), new THREE.MeshStandardMaterial({ map: canvasTex(512, (g) => {
