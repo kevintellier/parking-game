@@ -26,6 +26,7 @@ const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_
 const SLOT_XS = { 1: [-44.2, -38.8, -33.4, -23.7, -18.3, -8.1, -2.7, 2.7], [-1]: [-41, -35.6, -30.2, -20, -14.6, -3.5, 1.9, 7.3] };
 const GATES = { 1: [-28.6, -13, 20, 38], [-1]: [-46.5, -25, -8.5, 25] };
 const STRANGER_FINE = 10, NEIGHBOUR_FINE = 100;
+const PITS = [[-44.2, -4.55], [-47.2, 4.55]], PIT_R = 0.55; // entrance tree pits in the parking lane: clear of the zebra, Dédé's driveway and the first bays
 const CAR_R = 0.95, MY_R = 0.95, P_R = 0.35, BIN_R = 0.45;
 
 // ───────────────────────── renderer / scene / camera
@@ -554,15 +555,15 @@ function buildWorld() {
   // entrance of Rue d'Aguesseau (photo): purple-leaf plums in chestnut-paling pits past the zebra, black white-topped bollards, green lamp post, corner chevron
   const s0 = seed, BOL = new THREE.CylinderGeometry(0.07, 0.07, 0.85, 8);
   for (const s of [1, -1]) {
-    const tx = -45.6, tz = s * 6.15;
+    const [tx, tz] = PITS.find(p => Math.sign(p[1]) === s), e = 0.45; // kerbed pit jutting into the parking lane, off the sidewalk and driveways
     tree(S, tx, tz, 4.6, 'red');
-    box(S, 1.2, 0.02, 1.0, '#5a4636', tx, 0.16, tz);
-    for (const [a, b, c, d] of [[-0.6, -0.5, 0.6, -0.5], [-0.6, 0.5, 0.6, 0.5], [-0.6, -0.5, -0.6, 0.5], [0.6, -0.5, 0.6, 0.5]]) {
+    box(S, 2 * e + 0.2, 0.15, 2 * e + 0.2, '#bdbab2', tx, 0.075, tz); box(S, 2 * e, 0.02, 2 * e, '#5a4636', tx, 0.16, tz);
+    for (const [a, b, c, d] of [[-e, -e, e, -e], [-e, e, e, e], [-e, -e, -e, e], [e, -e, e, e]]) {
       const n = Math.round(Math.hypot(c - a, d - b) / 0.1);
       for (let i = 0; i <= n; i++) { const h = sr(0.42, 0.52); box(S, 0.05, h, 0.04, sp(['#8a6a48', '#7a5c3e', '#9a7a56']), tx + a + (c - a) * i / n, 0.15 + h / 2, tz + b + (d - b) * i / n); }
       for (const y of [0.3, 0.5]) box(S, Math.abs(c - a) + 0.04, 0.015, Math.abs(d - b) + 0.04, '#5b5b58', tx + (a + c) / 2, y, tz + (b + d) / 2);
     }
-    for (const x of [-51.1, -46.9]) { mesh(S, BOL, '#1d1d1f', x, 0.575, s * (CURB_Z + 0.3)); mesh(S, BALL, '#f2f2ee', x, 1.0, s * (CURB_Z + 0.3)).scale.set(0.5, 0.35, 0.5); }
+    for (const x of s > 0 ? [-51.1, -46.9] : [-51.1]) { mesh(S, BOL, '#1d1d1f', x, 0.575, s * (CURB_Z + 0.3)); mesh(S, BALL, '#f2f2ee', x, 1.0, s * (CURB_Z + 0.3)).scale.set(0.5, 0.35, 0.5); }
   }
   mesh(S, new THREE.CylinderGeometry(0.18, 0.2, 0.9, 10), '#1f3d2e', -52.5, 0.6, -10);
   mesh(S, new THREE.CylinderGeometry(0.06, 0.1, 6.6, 8), '#1f3d2e', -52.5, 3.45, -10);
@@ -985,7 +986,7 @@ const patience = who => who === player ? PATIENCE_ON_FOOT : PATIENCE;
 const touchesBelly = c => !driving && pedPush({ x: player.x, z: player.z }, c, P_R + 0.12);
 function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off her belly and gives up the bay
   const dx = c.x - player.x, dz = c.z - player.z, d = Math.hypot(dx, dz) || 1;
-  c.snub = c.slot; c.slot.ai = null; c.slot = null; c.state = 'drive'; // snub: never retry that bay c.speed = 0;
+  c.snub = c.slot; c.slot.ai = null; c.slot = null; c.state = 'drive'; c.speed = 0; // snub: never retry that bay
   c.kick = 1; c.kx = dx / d * 3.5; c.kz = dz / d * 3.5; belly = 1;
   SFX.boing(); floatText('Boing !', player.x, 3, player.z, '#ffd166');
 }
@@ -1107,6 +1108,7 @@ function carPen(c, x, z, ang, skip = []) {
       for (const [bx, bz, br] of circles(o)) pen += Math.max(0, ar + br - Math.hypot(ax - bx, az - bz));
     }
     for (const b of bins) pen += Math.max(0, ar + BIN_R - Math.hypot(ax - b.x, az - b.z));
+    for (const [px, pz] of PITS) pen += Math.max(0, ar + PIT_R - Math.hypot(ax - px, az - pz));
   }
   return pen;
 }
@@ -1190,7 +1192,7 @@ function pedPush(p, o, m = P_R) {
 }
 function pushOut(p) {
   for (const o of cars) if (o.state !== 'away') pedPush(p, o);
-  for (const b of [...bins, ...meters]) {
+  for (const b of [...bins, ...meters, ...PITS.map(([x, z]) => ({ x, z }))]) {
     const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz), m = BIN_R + P_R;
     if (d < m && d > 1e-4) { p.x = b.x + (dx / d) * m; p.z = b.z + (dz / d) * m; }
   }
@@ -2049,7 +2051,7 @@ setup();
 $('best').textContent = best ? nb(`Meilleur score : ${fr(Math.floor(best))}`) : '';
 $('start').onclick = () => {
   started = true; try { actx = new AudioContext(); } catch {} $('title').classList.add('hidden', 'ingame');
-  if (tutoI < 0) toast('Va jusqu’à ta voiture jaune et appuie sur E');
+  if (tutoI < 0) toast('Va jusqu’à ta Dacia grise et appuie sur E');
 };
 
 // ───────────────────────── tutorial: a coach panel shows one step at a time; a step is done when the game state says so
@@ -2059,7 +2061,7 @@ const mineCars = () => cars.filter(c => c.kind === 'mine');
 const moved = c => c.rest && Math.hypot(c.x - c.rest.x, c.z - c.rest.z) > 2 && slots.some(s => s.block === c); // driven elsewhere and left in a bay
 const TUTO = [ // [title, text (html, or a function), done?]
   ['Marche un peu', 'Tu es Erika, avec l’anneau jaune. Déplace-toi avec <kbd>ZQSD</kbd> ou les <kbd>flèches</kbd>.', () => driving || Math.hypot(player.x - tutoFrom.x, player.z - tutoFrom.z) > 4],
-  ['Monte dans ta voiture', 'Retourne à ta voiture jaune et appuie sur <kbd>E</kbd> pour monter. Ensuite, <kbd>ZQSD</kbd> ou les <kbd>flèches</kbd> pour conduire, <kbd>Espace</kbd> pour freiner.', () => driving],
+  ['Monte dans ta voiture', 'Retourne à ta Dacia grise et appuie sur <kbd>E</kbd> pour monter. Ensuite, <kbd>ZQSD</kbd> ou les <kbd>flèches</kbd> pour conduire, <kbd>Espace</kbd> pour freiner.', () => driving],
   ['Bloque une autre place', 'Roule jusqu’à une place libre (les rectangles blancs qui clignotent) et appuie sur <kbd>E</kbd> : la voiture s’y range et tu descends : « Place bloquée ! » Garée à cheval sur la ligne, elle en bloque deux.', () => !driving && mineCars().some(moved)],
   ['Attrape une poubelle', 'Les poubelles aussi bloquent une place. Approche-toi d’une poubelle sur le trottoir et appuie sur <kbd>B</kbd>.', () => binsInHand],
   ['Pousse-la sur une place', 'Pousse-la sur une place libre et appuie sur <kbd>B</kbd> pour la poser. Un compte à rebours apparaît : à zéro, Valérie, la voisine rousse, vient la remettre sur le trottoir.', () => bins.some(b => b.slot)],
@@ -2204,7 +2206,7 @@ Object.assign(window.__game, { selfTestDriving() {
   for (const c of cars.filter(c => c.kind !== 'mine')) { leaveStreet(c); c.timer = 1e9; }
   buyTruck();
   const car = cars.find(c => c.kind === 'mine' && !c.truck), tr = cars.find(c => c.truck), K = ['up', 'down', 'left', 'right'];
-  const clearAt = (v, x) => ![...bins, ...cars.filter(o => o !== v && o.state !== 'away')].some(o => Math.abs(o.z) < CURB_Z + 1 && Math.abs(o.x - x) < 14);
+  const clearAt = (v, x) => ![...bins, ...cars.filter(o => o !== v && o.state !== 'away'), ...PITS.map(([x, z]) => ({ x, z }))].some(o => Math.abs(o.z) < CURB_Z + 1 && Math.abs(o.x - x) < 14);
   const run = (v, pose, on, sec = 2) => { // drives v from pose with keys `on` held; returns how far it got
     Object.assign(v, pose, { speed: pose.speed || 0 }); driving = v;
     ok(carPen(v, v.x, v.z, v.ang) < 1e-3, 'start pose clear');
