@@ -17,7 +17,7 @@ const BRICK = (() => {
   return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
 })();
 
-export const hero = { style: { wall: '#eeeae0', cap: '#c68650', pil: BRICK, ph: 2.3, slat: '#8d2d3b', hedge: 'laurel', gate: '#8d2d3b' } };
+export const hero = { style: { wall: '#eeeae0', cap: '#c68650', pil: BRICK, ph: 2.3, slat: '#8d2d3b', hedge: 'laurel', gate: '#8d2d3b' }, wicket: -12.4 }; // wicket through the hedge, facing the terrace
 
 const WALL = '#f3f1ea', SHUT = '#aab2b8', PLINTH = '#bcb4a6', EAVE = '#e9e7e2';
 
@@ -81,6 +81,7 @@ export default function build(k, l) {
   // paving: the driveway runs on to the entrance; stone terrace in front of the main block
   tbox(S, 4.0, 0.03, 2.1, k.COBBLE, -8.4, 0.015, -12.55);
   tbox(S, 5.2, 0.06, 2.6, M('#d8d3c7'), -12.7, 0.03, -15.3);
+  tbox(S, 1.1, 0.05, 6.2, M('#d8d3c7'), l.wicket, 0.025, -10.9); // path from the wicket to the terrace
   // white hexagonal parasol over a garden table
   box(S, 0.06, 2.3, 0.06, '#e9e7e2', -12.9, 1.15, -15.1);
   k.mesh(S, new THREE.ConeGeometry(1.45, 0.55, 6), '#f4f2ec', -12.9, 2.45, -15.1);

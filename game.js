@@ -321,9 +321,9 @@ function zhedge(x, z0, z1, h, cols, dz) { // same hedge running along z
   const g = new THREE.Group(), l = Math.abs(z1 - z0) / 2; g.position.set(x, 0, (z0 + z1) / 2); g.rotation.y = Math.PI / 2; S.add(g);
   hedge(g, -l, l, 0, h, cols, dz);
 }
-function poppies(a, b, z, gate) { // California poppies at the foot of the wall
+function poppies(a, b, z, gate, wk) { // California poppies at the foot of the wall, not in front of the gates
   for (let x = a; x < b; x += sr(0.2, 0.45)) {
-    if (gate !== undefined && Math.abs(x - gate) < 2) continue;
+    if (gate !== undefined && Math.abs(x - gate) < 2 || wk !== undefined && Math.abs(x - wk) < 0.9) continue;
     inst(TUFT, M('#86a55c'), x, 0.22, z + sr(-0.08, 0.08), 0.16, 0.2);
     if (rnd() < 0.7) inst(FLOWER, M('#f5891f'), x + sr(-0.1, 0.1), sr(0.34, 0.46), z + sr(-0.1, 0.1));
   }
@@ -334,7 +334,7 @@ function pillar(x, z, st) {
   box(S, 0.54, 0.09, 0.54, st.cap, x, ph + 0.04, z);
   if (st.ball) mesh(S, BALL, st.ball, x, ph + 0.22, z);
 }
-function fence(a, b, s, st, endPillar) {
+function fence(a, b, s, st, endPillar, ha = a, hb = b) { // ha..hb: hedge extent (kept clear of a wicket)
   const z = s * WALL_Z, m = (a + b) / 2, len = b - a, n = Math.max(1, Math.round(len / 2.6)), pw = len / n;
   box(S, len, 0.9, 0.3, st.wall, m, 0.45, z);
   box(S, len, 0.07, 0.4, st.cap, m, 0.93, z);
@@ -348,8 +348,8 @@ function fence(a, b, s, st, endPillar) {
     const hh = 0.95 + 0.22 * Math.sin(Math.PI * (x - a - i * pw) / pw);
     inst(SLAT, M(st.slat), x, 0.96 + hh / 2, z, hh);
   }
-  if (st.hedge === 'laurel') hedge(S, a, b, z + s * 1.6, 4, HEDGES.laurel, 1.8);
-  else if (st.hedge) hedge(S, a, b, z + s * 0.75, 1.7, HEDGES[st.hedge], 0.9);
+  if (st.hedge === 'laurel') hedge(S, ha, hb, z + s * 1.6, 4, HEDGES.laurel, 1.8);
+  else if (st.hedge) hedge(S, ha, hb, z + s * 0.75, 1.7, HEDGES[st.hedge], 0.9);
 }
 function plate(x, y, z, txt) { // blue enamel house-number plate
   const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.22), new THREE.MeshStandardMaterial({ roughness: 0.4, map: canvasTex(64, g => {
@@ -386,6 +386,7 @@ function gate(g, s, lot) {
   if (lot.num) plate(g + 1.8, 1.4, fz, lot.num);
 }
 // lot boundaries per side; heroes pin a house/boundary to the lot containing x
+const BACK_Z = 29.6; // rendered wall along the bottom of the gardens (clear of the pool, trees and wings of houses/*.js)
 const CUTS = { 1: [-52, -43, -31, -19, -6, 7, 19, 30, 41, 52], [-1]: [-52, -37, -23, -6, 7, 19, 31, 42, 52] };
 const LOT_STYLES = ['green', 'anth', 'hedge', 'black', 'thuja', 'photinia', 'green'];
 // real houses: one module per lot in houses/ (lot data + builder)
@@ -400,7 +401,7 @@ const HEROES = [
 ].map(h => ({ ...h, ...h.mod.hero, build: h.mod.default }));
 // front garden: only low stuff on the camera side (s>0) so the street stays visible
 function garden(l) {
-  const s = l.s, free = x => l.gate === undefined || Math.abs(x - l.gate) > 2.6;
+  const s = l.s, free = x => (l.gate === undefined || Math.abs(x - l.gate) > 2.6) && (l.wicket === undefined || Math.abs(x - l.wicket) > 1.5);
   for (let i = 0; i < 3; i++) {
     const x = sr(l.x0 + 1, l.x1 - 1);
     if (!free(x)) continue;
@@ -409,17 +410,19 @@ function garden(l) {
   }
   if (l.banana) banana(S, l.x1 - 2.5, s * 8.8);
   if (l.maple) tree(S, l.cx - 1.5, s * 9.6, 3.6, 'red'); // Japanese maple
-  if (l.poppies || (s < 0 && rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate);
+  if (l.poppies || (s < 0 && rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate, l.wicket);
 }
 // everything a houses/*.js builder may use. l (the lot): { x0, x1, cx, s, zf, gate, st, ...hero } (hero may also set wicket: x of a
-// pedestrian gate in the front wall, mailDx: letterbox offset from the gate); street facade line z = s*zf,
+// pedestrian gate in the front wall — every house needs one, mailDx: letterbox offset from the gate); street facade line z = s*zf,
 // front wall z = s*WALL_Z; the game camera looks from +x/+z. Keep to x0..x1 and |z| > WALL_Z + 0.3; S is merged per material.
 const KIT = { THREE, S, box, tbox, mesh, M, tmat, canvasTex, inst, GLASS, LAMP, tileTex, ROOFS, WALLS, SHUTTERS, GREENS, REDS, HEDGES, STYLES, BLOB, FLOWER, TUFT, CONE, TRUNK, BALL, BAR, SLAT, WAVE, COBBLE, WALK,
   win, door, oeil, house, garden, blob, tree, shrub, hedge, zhedge, banana, poppies, pillar, plate, rnd, sr, sp, V2, V3, WALL_Z, CURB_Z, SLOT_Z, GATES };
 function row(s, cuts, gates = [], main = true) {
   const zf = s > 0 ? 13.2 : 11.5, lots = cuts.slice(0, -1).map((x0, i) => {
-    const x1 = cuts[i + 1], hero = (main && HEROES.find(h => h.s === s && h.x > x0 && h.x < x1)) || {};
-    return { x0, x1, s, zf, cx: (x0 + x1) / 2, ...hero, st: typeof hero.style === 'object' ? hero.style : STYLES[hero.style ?? sp(LOT_STYLES)], gate: gates.find(g => g > x0 && g < x1) };
+    const x1 = cuts[i + 1], hero = (main && HEROES.find(h => h.s === s && h.x > x0 && h.x < x1)) || {}, gate = gates.find(g => g > x0 && g < x1);
+    // generated houses get a wicket mid-lot, or ≥ 1.6 m clear of the driveway on the side away from the sliding leaf (g+0.7..g+4.3)
+    const wicket = hero.wicket ?? (hero.build || x1 - x0 <= 9 ? undefined : gate === undefined ? (x0 + x1) / 2 : gate - 4.6 > x0 + 0.3 ? gate - 4 : gate + 5);
+    return { x0, x1, s, zf, cx: (x0 + x1) / 2, ...hero, st: typeof hero.style === 'object' ? hero.style : STYLES[hero.style ?? sp(LOT_STYLES)], gate, wicket };
   });
   const wk = lots.flatMap(l => l.wicket ?? []); // pedestrian gates in the front wall
   const xs = [...new Set([...cuts, ...gates.flatMap(g => [g - 1.8, g + 1.8]), ...wk.flatMap(w => [w - 0.6, w + 0.6])])].sort((p, q) => p - q);
@@ -427,7 +430,10 @@ function row(s, cuts, gates = [], main = true) {
     const a = xs[i], b = xs[i + 1], m = (a + b) / 2, lot = lots.find(l => m > l.x0 && m < l.x1), g = gates.find(g => Math.abs(g - m) < 0.1);
     if (g !== undefined) gate(g, s, lot);
     else if (wk.some(w => Math.abs(w - m) < 0.1)) wicket(m, s, lot);
-    else fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01) || wk.some(w => Math.abs(w - 0.6 - b) < 0.01));
+    else {
+      const wa = wk.some(w => Math.abs(w + 0.6 - a) < 0.01), wb = wk.some(w => Math.abs(w - 0.6 - b) < 0.01);
+      fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01) || wb, wa ? a + 0.6 : a, wb ? b - 0.6 : b);
+    }
   }
   for (const l of lots) {
     const lw = l.x1 - l.x0, cx = l.cx;
@@ -437,20 +443,23 @@ function row(s, cuts, gates = [], main = true) {
       if (s < 0) FRONTS.push(V3(cx, h - 0.5, s * zf + 0.05));
     } else {
       if (lw > 9) {
-        const o = { doorX: l.gate };
+        const o = { doorX: l.wicket };
         o.w = Math.min(sr(7.5, 10), lw - 3); o.garage = lw - o.w > 7.2 && rnd() < 0.6;
         const h = house(S, cx + sr(-0.5, 0.5), s, zf, o);
         if (main && s < 0) FRONTS.push(V3(cx + sr(-2, 2), h - 0.5, s * zf + 0.05));
       }
       garden(l);
     }
-    if (l.x1 < cuts.at(-1)) { // rendered party wall between neighbours: low along the front garden, full height behind the houses
-      const zb = 26, fl = zf - WALL_Z - 0.15, bl = zb - zf;
-      box(S, 0.24, 1.1, fl, '#e8e2d4', l.x1, 0.55, s * (WALL_Z + 0.15 + fl / 2)); box(S, 0.34, 0.07, fl, '#cfc9bd', l.x1, 1.13, s * (WALL_Z + 0.15 + fl / 2));
-      box(S, 0.24, 1.8, bl, '#e8e2d4', l.x1, 0.9, s * (zf + bl / 2)); box(S, 0.34, 0.07, bl, '#cfc9bd', l.x1, 1.83, s * (zf + bl / 2));
-    }
     if (!l.build) tree(S, sr(l.x0 + 1, l.x1 - 1), s * sr(22, 26), sr(4.5, 7.5), sp(['green', 'green', 'red', 'cone'])); // real houses plant their own
   }
+  // rendered walls: party walls on every lot line (low along the front garden, full height behind the houses; the cross streets
+  // at |x| 52 / 63 have their own), and one along the bottom of the gardens
+  const fl = zf - WALL_Z - 0.15, bl = BACK_Z - zf, len = cuts.at(-1) - cuts[0], mx = (cuts[0] + cuts.at(-1)) / 2;
+  for (const x of cuts) if (![52, 63].includes(Math.abs(x))) {
+    box(S, 0.24, 1.1, fl, '#e8e2d4', x, 0.55, s * (WALL_Z + 0.15 + fl / 2)); box(S, 0.34, 0.07, fl, '#cfc9bd', x, 1.13, s * (WALL_Z + 0.15 + fl / 2));
+    box(S, 0.24, 1.8, bl, '#e8e2d4', x, 0.9, s * (zf + bl / 2)); box(S, 0.34, 0.07, bl, '#cfc9bd', x, 1.83, s * (zf + bl / 2));
+  }
+  box(S, len, 1.8, 0.24, '#e8e2d4', mx, 0.9, s * BACK_Z); box(S, len + 0.1, 0.07, 0.34, '#cfc9bd', mx, 1.83, s * BACK_Z);
 }
 function roadSign(x, z, rotY, draw) {
   box(S, 0.08, 2.9, 0.08, '#9aa0a4', x, 1.45, z);
@@ -500,10 +509,10 @@ function buildWorld() {
     row(s, CUTS[s], GATES[s]);
     row(s, [63, 76, 88], [], false); row(s, [-88, -76, -63], [], false);
     for (const [x, k] of [[-52, 1], [52, -1], [-63, -1], [63, 1]]) {
-      box(S, 0.3, 0.9, 20, '#ece6d8', x, 0.45, s * (WALL_Z + 10));
-      zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * (WALL_Z + 20), 1.7, HEDGES.privet, 0.9);
+      box(S, 0.3, 0.9, BACK_Z - WALL_Z, '#ece6d8', x, 0.45, s * (WALL_Z + BACK_Z) / 2);
+      zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * BACK_Z, 1.7, HEDGES.privet, 0.9);
     }
-    for (let x = -84; x < 86; x += sr(12, 16)) if (Math.abs(Math.abs(x) - 58) > 9) house(S, x, s, 30, { porch: false, velux: false });
+    for (let x = -84; x < 86; x += sr(12, 16)) if (Math.abs(Math.abs(x) - 58) > 9) house(S, x, s, 32, { porch: false, velux: false }); // back row, beyond the garden wall
     // road signs: "sens interdit" facing drivers at the +x end, blue "sens unique" at the -x entrance;
     // across Rue du Centre the street is one-way toward -x: blue arrow pointing away, "sens interdit" facing anyone coming out of it
     const noEntry = g => {

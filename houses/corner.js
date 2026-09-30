@@ -2,7 +2,7 @@
 // A single-storey cream house set back behind its lawn: hipped orange-tile roof whose ridge runs along z (parallel to
 // Rue du Centre), a lower lean-to roof along the Rue d'Aguesseau facade, a flat-roofed white garage at the back on the
 // Rue du Centre side, a Japanese maple and a big tree in the front garden, a tall tree behind on Marion's side.
-export const hero = { style: { wall: '#eeebe4', cap: '#c3c0b9', pil: '#ebe7df', bar: '#2f3337', gate: '#2f3337' }, mail: '#3a3d40' };
+export const hero = { style: { wall: '#eeebe4', cap: '#c3c0b9', pil: '#ebe7df', bar: '#2f3337', gate: '#2f3337' }, mail: '#3a3d40', wicket: -49.2 }; // wicket in line with the door
 
 const WC = '#efe5d0', CAP = '#8b3b27', FASCIA = '#ddd5c6';
 
@@ -91,6 +91,7 @@ export default function build(k, l) {
   for (let i = 1; i < 5; i++) box(S, 2.1, 0.03, 0.1, '#cfccc4', (gx0 + gx1) / 2, i * 0.42, gz1 + 0.03);
   k.tbox(S, gx1 - gx0, 0.04, 1.6, k.WALK, (gx0 + gx1) / 2, 0.02, gz1 + 0.8);
 
+  k.tbox(S, 1.1, 0.03, zf - k.WALL_Z - 0.3, k.WALK, l.wicket, 0.02, (zf + k.WALL_Z + 0.3) / 2); // path from the wicket to the door
   // ── gardens: lawn, a Japanese maple by Marion's side, a big tree near the corner, shrubs, a big tree out back
   k.tree(S, -44.8, 9.6, 3.4, 'red');
   k.tree(S, -50.3, 9.8, 4.6, 'green');
