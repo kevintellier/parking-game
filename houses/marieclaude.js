@@ -1,7 +1,7 @@
 // Marie-Claude — reference photos: Aguesseau_1.png (far left, looking south: banana, black railing), aguesseau_haut.png
 // Two-storey white house, ridge along the street, grey tiled roof with white boxed eaves, grey shutters;
 // flat grey canopy against the front wall north of the gate; big banana tree behind the gate, a large bush to the south.
-export const hero = { style: { wall: '#eeede8', cap: '#e0ded8', pil: '#eeede8', bar: '#1e1f21', gate: '#1e1f21' }, mail: '#f1efe9', mailDx: 1.8 }; // letterbox on the north pillar
+export const hero = { style: { wall: '#eeede8', cap: '#e0ded8', pil: '#eeede8', bar: '#1e1f21', gate: '#1e1f21' }, mail: '#f1efe9', mailDx: 1.8, wicket: -7.6 }; // wicket under the canopy // letterbox on the north pillar
 
 let tiles; // grey interlocking tiles (same layout as the kit's tileTex: courses along texture v)
 export default function build(k, l) {
@@ -68,6 +68,7 @@ export default function build(k, l) {
   box(S, c1 - c0 + 0.08, 0.2, 0.08, white, (c0 + c1) / 2, 2.28, cz0);
   for (const x of [c0, c1]) { box(S, 0.08, 0.2, cz1 - cz0, white, x, 2.4, (cz0 + cz1) / 2); box(S, 0.12, 2.3, 0.12, white, x + (x < -8 ? 0.1 : -0.1), 1.15, cz0 + 0.12); }
   box(S, 0.08, 2.3, 0.08, grey, c0 - 0.02, 1.15, cz0 + 0.02);
+  tbox(S, 1.1, 0.03, cz1 - cz0 + 0.3, k.WALK, l.wicket, 0.02, (cz0 + cz1 - 0.3) / 2); // covered path from the wicket
 
   // front garden: tall banana tree just north of the gate, big rounded bush to the south, lower shrubs by the wall
   for (const [dx, dz, sh] of [[0, 0, 3.6], [0.5, 0.3, 2.9], [-0.4, 0.45, 2.3]]) { // banana clump: pseudo-stems + long arching leaves
@@ -84,6 +85,6 @@ export default function build(k, l) {
   }
   const G = ['#3f6b30', '#4f7a35', '#557f3a', '#5f8f3e'];
   for (const [x, y, z, rr] of [[-17, 1.2, 9.4, 1.3], [-16.1, 1.9, 9.8, 1.2], [-17.4, 2.3, 10.1, 1.0], [-16.6, 2.7, 9.6, 0.8], [-15.8, 1.0, 9.2, 0.9]]) blob(S, x, y, z, rr, sp(G));
-  for (const x of [-18.3, -15.7, -8.6]) k.shrub(S, x + sr(-0.2, 0.2), 8.5 + sr(0, 0.4), sr(0.45, 0.6));
+  for (const x of [-18.3, -15.7]) k.shrub(S, x + sr(-0.2, 0.2), 8.5 + sr(0, 0.4), sr(0.45, 0.6));
   return H;
 }

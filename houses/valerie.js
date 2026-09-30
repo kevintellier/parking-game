@@ -4,7 +4,7 @@
 // Front boundary: pink rendered wall + pale wavy railing, pink pillars, solid sage-green gate.
 export const hero = {
   style: { wall: '#e6a491', cap: '#ece9e3', pil: '#e6a491', bar: '#d2e3db', wave: true, gate: '#9fc4b1', ph: 1.95, ball: '#8fa6bf' },
-  num: '92', mail: '#98b0a3',
+  num: '92', mail: '#98b0a3', wicket: -23.2, // pedestrian gate north of the sliding leaf
 };
 
 const PINK = '#f7bfac', MINT = '#9dc6ae', WHITE = '#f4f3ee', HOOD = '#dcd9d1', VERGE = '#93402b';
@@ -96,7 +96,7 @@ export default function build(k, l) {
   tbox(S, 1.25, 0.03, 1.1, M('#bdb5a8'), X0 - 0.62, 0.025, zf + 0.55);
 
   // planting: poppies on the sidewalk at the wall foot, low shrubs in front, trees in the back garden
-  k.poppies(l.x0 + 0.4, l.x1 - 0.4, l.s * (k.WALL_Z - 0.33), l.gate);
+  k.poppies(l.x0 + 0.4, l.x1 - 0.4, l.s * (k.WALL_Z - 0.33), l.gate, l.wicket);
   k.shrub(S, -22.8, zf - 0.7, 0.45, false);
   k.shrub(S, -20.3, zf - 0.9, 0.55, true);
   k.shrub(S, -25.2, 8.5, 0.4, true);

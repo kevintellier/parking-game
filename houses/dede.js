@@ -4,7 +4,7 @@
 // with a roof terrace and a brick chimney on the corner side.
 export const hero = {
   style: { wall: '#f1f0ec', cap: '#e4e3de', pil: '#f3f2ee', bar: '#3e4146', gate: '#3e4146' },
-  num: '89', mail: '#ecebe6',
+  num: '89', mail: '#ecebe6', wicket: -41, // pedestrian gate in line with the porch
 };
 
 const W = 10.4, D = 9.2, H = 6.0, RH = 3.4; // main block: width (x), depth (z), eave height, roof rise
@@ -160,6 +160,7 @@ export default function build(k, l) {
   const tile = (x0, x1, z0, z1) => fbox(k.S, x1 - x0, 0.03, z1 - z0, PAVE, (x0 + x1) / 2, 0.035, (z0 + z1) / 2, 1.2);
   tile(X0 + 0.2, X0 + 4.9, Z0 + 0.0, -7.8);
   tile(X0 + 4.9, X0 + 8.8, Z0 - 1.0, Z0 + 1.2);
+  tile(l.wicket - 0.6, l.wicket + 0.6, Z0 + 1.2, -7.8); // path from the wicket
   const pot = (x, z, col, r) => { k.mesh(k.S, new T.CylinderGeometry(r, r * 0.75, r * 1.5, 10), col, x, r * 0.75, z); return r * 1.5; };
   const bamboo = (x, z) => {
     const ph = pot(x, z, '#6a9a3a', 0.3);
