@@ -67,6 +67,13 @@
   #coach button:hover { background: rgba(255,209,102,.22); }
   #coach #coachNext { background: var(--accent); color: #2a1f05; border-color: var(--accent); }
   #shop.glow { box-shadow: 0 0 0 3px var(--accent), 0 0 30px rgba(255,209,102,.6); }
+  /* special interaction: blur everything but a clear circle around the event (--fx/--fy set by game.js) */
+  #focus { position: fixed; inset: 0; --fx: 50%; --fy: 50%; background: rgba(12,16,26,.3); backdrop-filter: blur(6px) saturate(.6); -webkit-backdrop-filter: blur(6px) saturate(.6);
+    -webkit-mask: radial-gradient(circle at var(--fx) var(--fy), transparent 0 110px, #000 200px); mask: radial-gradient(circle at var(--fx) var(--fy), transparent 0 110px, #000 200px); }
+  #focusCard { left: 50%; bottom: 120px; transform: translateX(-50%); width: max-content; max-width: min(520px, calc(100vw - 48px)); padding: 12px 20px 10px; text-align: center; border-color: rgba(255,209,102,.6); }
+  #focusCard h3 { margin: 0 0 6px; font-size: 19px; color: var(--accent); }
+  #focusCard .label { margin-top: 8px; }
+  #focus.hidden, #focusCard.hidden { display: none; }
   #best { margin-top: 12px; font-size: 14px; opacity: .7; }
   /* touch: floating stick on the left half, action buttons bottom right, compact HUD; hidden with a mouse */
   #stick, #tbtns, #tmenu, .tc { display: none; }
@@ -156,6 +163,8 @@
 <div id="tmenu"><button data-k="KeyH" aria-label="Aide">?</button><button data-k="KeyP" aria-label="Pause">⏸</button><button id="tMute" data-k="KeyM" aria-label="Son">🔊</button></div>
 <div id="prompt"></div>
 <div id="toast"></div>
+<div id="focus" class="hidden"></div>
+<div id="focusCard" class="panel hidden"><h3 id="focusTitle"></h3><div id="focusText"></div><div class="label"><span class="kb">E ou Espace</span><span class="tc">Touche l'écran</span> pour continuer</div></div>
 
 <div id="title" class="overlay">
   <div class="card">
@@ -178,6 +187,7 @@
           <li><kbd>Espace</kbd> freiner</li>
           <li><kbd>E</kbd> monter en voiture, puis <kbd>E</kbd> sur une place pour l'y laisser : elle se range toute seule</li>
           <li><kbd>B</kbd> prendre / poser une poubelle</li>
+          <li><kbd>E</kbd> près d'une voiture sale de voisin ou de la famille : la laver</li>
           <li><kbd>1</kbd> à <kbd>5</kbd> acheter dans la boutique</li>
           <li><kbd>P</kbd> pause · <kbd>M</kbd> son · <kbd>H</kbd> aide · molette : zoom</li>
           <li>🎮 Manette : stick gauche ou croix (la voiture va là où tu pointes), ou <kbd>RT</kbd>/<kbd>LT</kbd> accélérer/reculer en dirigeant au stick · <kbd>A</kbd> = E · <kbd>B</kbd> = B · <kbd>X</kbd> frein · <kbd>LB</kbd>/<kbd>RB</kbd> puis <kbd>Y</kbd> boutique · <kbd>Start</kbd> pause</li>
@@ -189,6 +199,7 @@
           <li>Tu en gagnes en continu, <b>trois fois plus</b> tant qu'aucun inconnu n'est garé.</li>
           <li>Chaque inconnu qui se gare : <b>−10</b>.</li>
           <li>Un voisin qui traverse toute la rue sans trouver de place : <b>−100</b>.</li>
+          <li>Laver une voiture sale (boue, bulles marron) de voisin ou de la famille : <b>+150</b>.</li>
           <li>Boutique : voitures, camion, Ferrari F430, bornes payantes (les places rapportent plus), places en plus. Les voitures sont livrées devant ton garage : à toi de les garer.</li>
         </ul>
       </div>
@@ -199,8 +210,9 @@
       <li><b>Valérie</b>, la voisine rousse d'en face, ne supporte pas les poubelles sur les places : à la fin du compte à rebours, elle vient les remettre sur le trottoir.</li>
       <li><b>Le père</b>, son mari, te court après pour lâcher une caisse à côté de toi, et ça te ralentit. Sème-le assez longtemps et il rentre chez lui.</li>
       <li><b>Ta femme</b> emprunte parfois une de tes voitures et la ramène devant le garage.</li>
+      <li>Ta <b>BMW</b> tombe en panne une fois sur deux.</li>
       <li><b>Stéphane</b>, le mécano, vient réparer les voitures qui ne démarrent pas.</li>
-      <li>Ramasse les <b>baguettes</b> sur le trottoir pour marcher plus vite. Des conducteurs s'arrêtent parfois pour papoter et bloquent la rue.</li>
+      <li>Ramasse les <b>baguettes</b> sur le trottoir pour marcher plus vite. Des conducteurs s'arrêtent parfois pour papoter et bloquent la rue : les potins sur <b>Jean-Marie</b> ton patron, sa sœur <b>Raymonde</b>, ton ami <b>Jean-Claude</b>, <b>Dalila</b> l'amie de ta femme, et les voisins.</li>
       <li>La circulation vient par vagues depuis la rue du Centre : moments calmes, puis heures de pointe.</li>
     </ul>
     <div class="legend"><span><span class="dot" style="background:var(--mine)"></span>à toi</span><span><span class="dot" style="background:var(--teal)"></span>voisin</span><span><span class="dot" style="background:#9b5de5"></span>famille</span><span><span class="dot" style="background:var(--red)"></span>inconnu</span><span><span class="dot" style="background:#ffb703"></span>inconnu en approche</span></div>
