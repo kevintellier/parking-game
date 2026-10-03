@@ -32,8 +32,9 @@ const PITS = [[-44.2, -4.55], [-47.2, 4.55]], PIT_R = 0.55; // entrance tree pit
 const CAR_R = 0.95, MY_R = 0.95, P_R = 0.35, BIN_R = 0.45;
 
 // ───────────────────────── renderer / scene / camera
+const TOUCH = matchMedia('(pointer: coarse)').matches; // phones/tablets: on-screen stick and buttons (index.html), lighter rendering
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -51,8 +52,8 @@ const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
 const CAM_OFF = new THREE.Vector3(35, 60, 35);
 const camTarget = new THREE.Vector3();
 function resize() {
-  const a = innerWidth / innerHeight;
-  Object.assign(camera, { left: -viewH * a, right: viewH * a, top: viewH, bottom: -viewH });
+  const a = innerWidth / innerHeight, h = Math.max(viewH, 12 / a); // portrait: keep at least 24 m across
+  Object.assign(camera, { left: -h * a, right: h * a, top: h, bottom: -h });
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 }
@@ -1439,21 +1440,45 @@ function buyBays() {
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyZ: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyQ: 'left', KeyD: 'right', ArrowRight: 'right', Space: 'brake' };
 addEventListener('keydown', e => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
-  if (e.repeat || !started) return;
-  if (e.code === 'KeyH' || helpOn() && (e.code === 'KeyP' || e.code === 'Escape')) return help(!helpOn());
-  if (e.code === 'KeyP') { paused = !paused; $('paused').classList.toggle('hidden', !paused); }
-  if (paused) return;
-  if (e.code === 'KeyE') actionE();
-  if (e.code === 'KeyB') actionB();
-  if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Son coupé' : 'Son activé'); }
-  if (e.code === 'Digit1' || e.code === 'Numpad1') buyCar();
-  if (e.code === 'Digit2' || e.code === 'Numpad2') buyTruck();
-  if (e.code === 'Digit3' || e.code === 'Numpad3') buyFerrari();
-  if (e.code === 'Digit4' || e.code === 'Numpad4') buyMeter();
-  if (e.code === 'Digit5' || e.code === 'Numpad5') buyBays();
+  if (!e.repeat) press(e.code);
 });
+function press(code) { // one key press, from the keyboard or a touch button
+  if (!started) return;
+  if (code === 'KeyH' || helpOn() && (code === 'KeyP' || code === 'Escape')) return help(!helpOn());
+  if (code === 'KeyP') { paused = !paused; $('paused').classList.toggle('hidden', !paused); }
+  if (paused) return;
+  if (code === 'KeyE') actionE();
+  if (code === 'KeyB') actionB();
+  if (code === 'KeyM') { muted = !muted; toast(muted ? 'Son coupé' : 'Son activé'); }
+  if (code === 'Digit1' || code === 'Numpad1') buyCar();
+  if (code === 'Digit2' || code === 'Numpad2') buyTruck();
+  if (code === 'Digit3' || code === 'Numpad3') buyFerrari();
+  if (code === 'Digit4' || code === 'Numpad4') buyMeter();
+  if (code === 'Digit5' || code === 'Numpad5') buyBays();
+}
 addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+// touch: a thumb anywhere on the left half of the street is a floating stick that holds the arrow keys (8 directions)
+const STICK_R = 50, stick = $('stick'), knob = $('knob'), cv = renderer.domElement;
+let stickId = null, stick0 = null;
+const setStick = (dx, dy) => {
+  const d = Math.hypot(dx, dy), t = 0.38 * Math.min(d, STICK_R), on = d > 10; // 0.38 ≈ sin 22.5°: even sectors
+  if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
+  knob.style.transform = d ? `translate(${dx}px, ${dy}px)` : '';
+  Object.assign(keys, { left: on && dx < -t, right: on && dx > t, up: on && dy < -t, down: on && dy > t });
+};
+cv.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' || stickId !== null || e.clientX > innerWidth / 2) return;
+  stickId = e.pointerId; stick0 = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId);
+  Object.assign(stick.style, { left: e.clientX + 'px', top: e.clientY + 'px' }); stick.classList.add('on');
+});
+cv.addEventListener('pointermove', e => { if (e.pointerId === stickId) setStick(e.clientX - stick0[0], e.clientY - stick0[1]); });
+const stickOff = e => { if (e.pointerId !== stickId) return; stickId = null; setStick(0, 0); stick.classList.remove('on'); stick.style.left = stick.style.top = ''; };
+cv.addEventListener('pointerup', stickOff); cv.addEventListener('pointercancel', stickOff);
+for (const b of document.querySelectorAll('[data-k]')) b.onpointerdown = e => { e.preventDefault(); press(b.dataset.k); };
+const brake = on => e => { e.preventDefault(); keys.brake = on; };
+$('tBrake').onpointerdown = brake(true); $('tBrake').onpointerup = $('tBrake').onpointercancel = $('tBrake').onpointerleave = brake(false);
+$('paused').onpointerdown = () => press('KeyP'); // not click: the tap that paused would land on it and resume
 $('buyCar').onclick = e => { buyCar(); e.currentTarget.blur(); };
 $('buyTruck').onclick = e => { buyTruck(); e.currentTarget.blur(); };
 $('buyFerrari').onclick = e => { buyFerrari(); e.currentTarget.blur(); };
@@ -1534,6 +1559,8 @@ function hud(dt) {
   else if (mine) p = mine.family ? `E — déplacer la voiture de ${mine.name}` : `E — conduire ${mine.truck ? 'le camion' : 'cette voiture'}`;
   else if (nearBin()) p = 'B — prendre la poubelle';
   $('prompt').textContent = started ? nb(p) : '';
+  $('tE').classList.toggle('ready', p.startsWith('E')); $('tB').classList.toggle('ready', p.startsWith('B'));
+  $('tBrake').classList.toggle('off', !driving); $('tMute').textContent = muted ? '🔇' : '🔊';
   coach();
   try { if (Math.floor(best) > (+localStorage.getItem('parkingGuardBest') || 0)) localStorage.setItem('parkingGuardBest', Math.floor(best)); } catch {}
 }
@@ -2094,6 +2121,7 @@ setup();
 $('best').textContent = best ? nb(`Meilleur score : ${fr(Math.floor(best))}`) : '';
 $('start').onclick = () => {
   started = true; try { actx = new AudioContext(); } catch {} $('title').classList.add('hidden', 'ingame');
+  if (TOUCH) document.documentElement.requestFullscreen?.().catch(() => {}); // hides the browser bars (no-op on iPhone)
   if (tutoI < 0) toast('Va jusqu’à ta Dacia grise et appuie sur E');
 };
 
@@ -2126,7 +2154,9 @@ function coach() { // called from hud(): advance when the step is done, refresh 
   $('shop').classList.toggle('glow', !!st && st[0] === 'Achète une voiture');
   if (!st || !started) return;
   if (st[2]?.()) { SFX.free(); return tuto(tutoI + 1); }
-  const t = nb(typeof st[1] === 'function' ? st[1]() : st[1]);
+  let t = nb(typeof st[1] === 'function' ? st[1]() : st[1]);
+  if (TOUCH) t = t.replace(/<kbd>ZQSD<\/kbd> ou les <kbd>flèches<\/kbd>/g, 'le joystick (pouce sur la moitié gauche de l’écran)').replace('<kbd>Espace</kbd>', '<kbd>Frein</kbd>')
+    .replace(' (touche <kbd>1</kbd>)', ' (🚗)').replace('en bas à droite', 'en bas').replace('<kbd>H</kbd>', '<kbd>?</kbd>');
   if ($('coachText').dataset.t === t) return;
   $('coachText').dataset.t = t; $('coachText').innerHTML = t;
   $('coachTitle').textContent = nb(st[0]); $('coachStep').textContent = `Tutoriel · ${tutoI + 1}/${TUTO.length}`;
