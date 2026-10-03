@@ -850,9 +850,9 @@ const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.8, 40), new THREE.Mes
 ring.rotation.x = -Math.PI / 2; ring.position.y = 0.2; scene.add(ring);
 
 // ───────────────────────── game state
-const keys = {}; // keyboard booleans, plus sx/sy: analog stick (touch or gamepad), -1..1, y down = back
+const keys = {}; // keyboard booleans, plus sx/sy: analog stick (touch or gamepad), -1..1, screen axes (y down); th: gamepad triggers
 const axX = () => clamp((keys.right ? 1 : 0) - (keys.left ? 1 : 0) + (keys.sx || 0), -1, 1);
-const axY = () => clamp((keys.up ? 1 : 0) - (keys.down ? 1 : 0) - (keys.sy || 0), -1, 1); // forward +
+const axY = () => clamp((keys.up ? 1 : 0) - (keys.down ? 1 : 0) - (keys.sy || 0) + (keys.th || 0), -1, 1); // forward +
 const dz = v => { const a = Math.abs(v); return a < 0.15 ? 0 : a > 0.9 ? Math.sign(v) : Math.sign(v) * (a - 0.15) / 0.75; }; // dead zone, full at the rim
 let belly = 0, driving = null, score = 50, elapsed = 0, streak = 0, rate = 0, mult = 1, spawnT = 8;
 let boostT = 0, slowT = 0, chatT = rand(30, 50); // speed boost (baguette), slowdown (father's fart), cooldown before a driver stops to chat
@@ -1138,15 +1138,26 @@ function tidy(c) {
   const t = { x: Math.abs(sx - c.x) < SLOT_LEN / 2 ? sx : c.x, z: parkZ(c, side), ang: Math.cos(c.ang) >= 0 ? 0 : Math.PI };
   return carPen(c, t.x, t.z, t.ang) <= carPen(c, c.x, c.z, c.ang) + 1e-4 ? t : null;
 }
+const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+// stick alone (no triggers): the car heads where the stick points on screen, reversing when it points behind a slow car;
+// returns [throttle, steer], or null for car-relative keys (and triggers + stick x)
+function stickDrive(c) {
+  const sx = keys.sx || 0, sy = keys.sy || 0, m = Math.min(1, Math.hypot(sx, sy));
+  if (!m || keys.th || keys.up || keys.down || keys.left || keys.right) return null;
+  const t = Math.atan2(sx - sy, sx + sy), dF = wrap(t - c.ang), dB = wrap(t - c.ang - Math.PI); // same screen→street map as walk()
+  const back = c.speed < -0.5 || c.speed <= 0.5 && Math.abs(dF) > 1.9; // ~110°: pointing behind a slow car backs it up
+  if (!back) return Math.abs(dF) > 2.1 && c.speed > 0.5 ? [-m, 0] : [m * Math.max(0.35, Math.cos(dF)), clamp(2 * dF, -1, 1)]; // way behind while rolling: brake first
+  return Math.abs(dB) > 2.1 && c.speed < -0.5 ? [m, 0] : [-m * Math.max(0.35, Math.cos(dB)), clamp(-2 * dB, -1, 1)];
+}
 function drive(c, dt) {
-  const f = axY(); // a half-pushed stick cruises at half the top speed (full forward/back reverse like the keys)
+  const st = stickDrive(c), f = c.thr = st ? st[0] : axY(); // a half-pushed stick cruises at half the top speed (full forward/back reverse like the keys)
   const acc = f > 0 ? (f === 1 || c.speed < f * c.top ? c.acc : 0)
     : f < 0 ? (c.speed > 0.5 ? -1.8 * c.acc : f === -1 || c.speed > 0.4 * f * c.top ? -0.67 * c.acc : 0) : 0;
   c.speed += acc * dt;
   if (!acc) c.speed *= Math.pow(0.3, dt);
   if (keys.brake) c.speed *= Math.pow(0.01, dt);
   c.speed = clamp(c.speed, -0.4 * c.top, c.top);
-  const steer = -axX(); // proportional with a stick: small nudges to line up in a bay
+  const steer = st ? st[1] : -axX(); // proportional with the triggers + stick: small nudges to line up in a bay
   const ang = c.ang + steer * clamp(c.speed, -4, 4) * c.turn * dt, k = c.pivot, d = c.speed * dt; // turns about a point k m behind the centre (rear axle)
   const pose = (a, d) => ({ x: c.x - Math.cos(c.ang) * k + Math.cos(a) * (k + d), z: c.z + Math.sin(c.ang) * k - Math.sin(a) * (k + d), ang: a });
   const m = pose(ang, d), before = carPen(c, c.x, c.z, c.ang), fits = p => carPen(c, p.x, p.z, p.ang) <= before + 1e-4;
@@ -1189,14 +1200,14 @@ function truckShove(c, x, z, ang) {
 // black smoke: the truck's diesel (idle trickle, more with speed, lots on the throttle) + low rumble; the BMW coughs a cloud at start-up
 function exhaustFx(c, dt) {
   const v = Math.abs(c.speed);
-  if (c.truck) c.smokeT += dt * (v > 0.3 ? 12 + v * 3 + (axY() > 0 ? 30 : 0) : 3);
+  if (c.truck) c.smokeT += dt * (v > 0.3 ? 12 + v * 3 + (c.thr > 0 ? 30 : 0) : 3);
   if (c.cough > 0) { c.cough -= dt; c.smokeT += dt * 45; }
   if (c.smokeT >= 1) {
     c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = c.ang; c.mesh.updateMatrixWorld();
     const p = c.mesh.localToWorld(c.exhaust.clone());
     for (; c.smokeT >= 1; c.smokeT--) smokePuff(p);
   }
-  if (c.truck && (c.rumbleT -= dt) <= 0) { c.rumbleT = 0.16; beep([36 + v * 5], 0.18, 'sawtooth', axY() > 0 ? 0.035 : 0.02); }
+  if (c.truck && (c.rumbleT -= dt) <= 0) { c.rumbleT = 0.16; beep([36 + v * 5], 0.18, 'sawtooth', c.thr > 0 ? 0.035 : 0.02); }
 }
 const pedBounds = p => { p.x = clamp(p.x, -60, 60); p.z = clamp(p.z, -WALL_Z + 0.45, WALL_Z - 0.45); };
 // pedestrian vs vehicle: the footprint is a len × 2r box (the collision circles leave gaps along the sides of long cars)
@@ -1482,18 +1493,18 @@ cv.addEventListener('pointerup', stickOff); cv.addEventListener('pointercancel',
 for (const b of document.querySelectorAll('[data-k]')) b.onpointerdown = e => { e.preventDefault(); press(b.dataset.k); };
 const brake = on => e => { e.preventDefault(); keys.brake = on; };
 $('tBrake').onpointerdown = brake(true); $('tBrake').onpointerup = $('tBrake').onpointercancel = $('tBrake').onpointerleave = brake(false);
-// gamepad (standard layout): left stick or d-pad to move, RT/LT throttle/reverse, A = E, B = B, X brake,
+// gamepad (standard layout): left stick or d-pad to move (the car goes where it points), or RT/LT throttle/reverse steered with the stick, A = E, B = B, X brake,
 // LB/RB pick a shop item and Y buys it, Start pause, Back help; A or Start on the title card starts.
 // Writes keys only when the pad changes, so it never overrides the keyboard or the touch stick.
 const SHOP = ['buyCar', 'buyTruck', 'buyFerrari', 'buyMeter', 'buyBays'], PAD = { 0: 'KeyE', 1: 'KeyB', 8: 'KeyH', 9: 'KeyP' };
-let padOld = [], padAx = [0, 0], shopI = 0;
+let padOld = [], padAx = [0, 0, 0], shopI = 0;
 function pollPad() {
   const p = [...(navigator.getGamepads?.() || [])].find(Boolean);
   if (!p) return;
   const b = Array.from({ length: 17 }, (_, i) => !!p.buttons[i]?.pressed), old = padOld, hit = i => b[i] && !old[i], tr = i => dz(p.buttons[i]?.value || 0);
   padOld = b;
-  const ax = [clamp(dz(p.axes[0] || 0) + b[15] - b[14], -1, 1), clamp(dz(p.axes[1] || 0) + b[13] - b[12] + tr(6) - tr(7), -1, 1)];
-  if (ax[0] !== padAx[0] || ax[1] !== padAx[1]) [keys.sx, keys.sy] = padAx = ax;
+  const ax = [clamp(dz(p.axes[0] || 0) + b[15] - b[14], -1, 1), clamp(dz(p.axes[1] || 0) + b[13] - b[12], -1, 1), tr(7) - tr(6)];
+  if (ax.some((v, i) => v !== padAx[i])) [keys.sx, keys.sy, keys.th] = padAx = ax;
   if (b[2] !== !!old[2]) keys.brake = b[2];
   if (!started) { if (hit(0) || hit(9)) $('title').querySelector('.btns button').click(); return; }
   if (helpOn() && hit(0)) return help(false);
