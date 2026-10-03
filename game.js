@@ -3,6 +3,7 @@ import { buildTruck, buildBMW, buildSpring, buildPicasso, buildZ4, buildPolo, bu
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildErika } from './models.js';
+import * as bugnotHouse from './houses/bugnot.js';
 import * as dedeHouse from './houses/dede.js';
 import * as erikaHouse from './houses/erika.js';
 import * as jackHouse from './houses/jack.js';
@@ -23,7 +24,7 @@ const fr = (v, d = 0) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, m
 // one-way street: a single lane at z=0, traffic always flows toward +x (cars turn in from Rue du Centre at x=-XS, out onto the cross street at +XS)
 const POLE_XS = [-38, -22.5, -2, 18, 38], POLE_Z = -6.85; // wooden utility poles on the far sidewalk
 const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_X = 70, SLOT_LEN = 5.4;
-// real layout (aguesseau_haut.png): +x = north, Rue du Centre just past -x; west side s=-1: Dédé, Erika, Jack; east side s=1: Marion, Valérie, Marie-Claude
+// real layout (aguesseau_haut.png): +x = north, Rue du Centre just past -x; west side s=-1: Bugnot (corner), Dédé, Erika, Jack; east side s=1: Marion, Valérie, Marie-Claude
 const SLOT_XS = { 1: [-44.2, -38.8, -33.4, -23.7, -18.3, -8.1, -2.7, 2.7], [-1]: [-41, -35.6, -30.2, -20, -14.6, -3.5, 1.9, 7.3] };
 const GATES = { 1: [-28.6, -13, 20, 38], [-1]: [-46.5, -25, -8.5, 25] };
 const STRANGER_FINE = 10, NEIGHBOUR_FINE = 100;
@@ -374,13 +375,15 @@ function wicket(x, s, lot) { // pedestrian gate: a railed leaf in the gate colou
 }
 function gate(g, s, lot) {
   const st = lot.st, z = s * WALL_Z, gz = z + s * 0.32, gx = g + 2.5, mat = M(st.gate, { metalness: 0.4, roughness: 0.5 });
-  box(S, 3.6, 0.85, 0.05, mat, gx, 0.55, gz); // sliding leaf, pulled mostly open behind the wall
-  for (const y of [0.98, 1.72]) box(S, 3.6, 0.06, 0.07, mat, gx, y, gz);
-  for (let x = gx - 1.7; x < gx + 1.75; x += 0.14) inst(st.wave ? WAVE : BAR, mat, x, 1.35, gz);
-  box(S, 5.6, 0.03, 0.08, '#6d6f71', g + 1, 0.015, gz);
   tbox(S, 3.6, 0.02, WALL_Z - CURB_Z - 0.3, COBBLE, g, 0.16, s * (CURB_Z + WALL_Z) / 2); // pavés on the sidewalk
-  const dl = (s > 0 ? 13.2 : 11.5) - WALL_Z - 0.3;
-  tbox(S, 3.2, 0.03, dl, COBBLE, g, 0.015, s * (WALL_Z + 0.15 + dl / 2));
+  if (!lot.streetGarage) { // a garage right on the street (lot.streetGarage) has no leaf and no driveway behind the wall
+    box(S, 3.6, 0.85, 0.05, mat, gx, 0.55, gz); // sliding leaf, pulled mostly open behind the wall
+    for (const y of [0.98, 1.72]) box(S, 3.6, 0.06, 0.07, mat, gx, y, gz);
+    for (let x = gx - 1.7; x < gx + 1.75; x += 0.14) inst(st.wave ? WAVE : BAR, mat, x, 1.35, gz);
+    box(S, 5.6, 0.03, 0.08, '#6d6f71', g + 1, 0.015, gz);
+    const dl = (s > 0 ? 13.2 : 11.5) - WALL_Z - 0.3;
+    tbox(S, 3.2, 0.03, dl, COBBLE, g, 0.015, s * (WALL_Z + 0.15 + dl / 2));
+  }
   const fz = s * (WALL_Z - 0.27);
   box(S, 0.34, 0.42, 0.1, lot.mail ?? sp(['#3a3d40', '#2d4b3b', '#6b4a33', '#f1efe9']), g + (lot.mailDx ?? -1.8), 1.2, fz); // letterbox (mailDx: offset from the gate)
   box(S, 0.5, 0.64, 0.08, '#f4f3ef', g - 2.6, 0.44, s * (WALL_Z - 0.18)); // electric meter box
@@ -389,10 +392,11 @@ function gate(g, s, lot) {
 }
 // lot boundaries per side; heroes pin a house/boundary to the lot containing x
 const BACK_Z = 29.6; // rendered wall along the bottom of the gardens (clear of the pool, trees and wings of houses/*.js)
-const CUTS = { 1: [-52, -43, -31, -19, -6, 7, 19, 30, 41, 52], [-1]: [-52, -37, -23, -6, 7, 19, 31, 42, 52] };
+const CUTS = { 1: [-52, -43, -31, -19, -6, 7, 19, 30, 41, 52], [-1]: [-52, -48.7, -37, -21, -6, 7, 19, 31, 42, 52] };
 const LOT_STYLES = ['green', 'anth', 'hedge', 'black', 'thuja', 'photinia', 'green'];
 // real houses: one module per lot in houses/ (lot data + builder)
 const HEROES = [
+  { s: -1, x: -50, mod: bugnotHouse }, // Bugnot, on the corner of Rue du Centre, garage on Rue d'Aguesseau
   { s: -1, x: -44, mod: dedeHouse }, // Dédé (89)
   { s: -1, x: -30, mod: erikaHouse }, // Erika (the player)
   { s: -1, x: -15, mod: jackHouse }, // Jack, behind his tall laurel hedge
@@ -415,7 +419,8 @@ function garden(l) {
   if (l.poppies || (s < 0 && rnd() < 0.3)) poppies(l.x0 + 0.4, l.x1 - 0.4, s * (WALL_Z - 0.33), l.gate, l.wicket);
 }
 // everything a houses/*.js builder may use. l (the lot): { x0, x1, cx, s, zf, gate, st, ...hero } (hero may also set wicket: x of a
-// pedestrian gate in the front wall — every house needs one, mailDx: letterbox offset from the gate); street facade line z = s*zf,
+// pedestrian gate in the front wall, mailDx: letterbox offset from the gate, noWall: the house itself stands on the frontage,
+// streetGarage: the gate is a garage door on the street, no leaf); street facade line z = s*zf,
 // front wall z = s*WALL_Z; the game camera looks from +x/+z. Keep to x0..x1 and |z| > WALL_Z + 0.3; S is merged per material.
 const KIT = { THREE, S, box, tbox, mesh, M, tmat, canvasTex, inst, GLASS, LAMP, tileTex, ROOFS, WALLS, SHUTTERS, GREENS, REDS, HEDGES, STYLES, BLOB, FLOWER, TUFT, CONE, TRUNK, BALL, BAR, SLAT, WAVE, COBBLE, WALK,
   win, door, oeil, house, garden, blob, tree, shrub, hedge, zhedge, banana, poppies, pillar, plate, rnd, sr, sp, V2, V3, WALL_Z, CURB_Z, SLOT_Z, GATES };
@@ -432,7 +437,7 @@ function row(s, cuts, gates = [], main = true) {
     const a = xs[i], b = xs[i + 1], m = (a + b) / 2, lot = lots.find(l => m > l.x0 && m < l.x1), g = gates.find(g => Math.abs(g - m) < 0.1);
     if (g !== undefined) gate(g, s, lot);
     else if (wk.some(w => Math.abs(w - m) < 0.1)) wicket(m, s, lot);
-    else {
+    else if (!lot.noWall) {
       const wa = wk.some(w => Math.abs(w + 0.6 - a) < 0.01), wb = wk.some(w => Math.abs(w - 0.6 - b) < 0.01);
       fence(a, b, s, lot.st, i === xs.length - 2 || gates.some(g => Math.abs(g - 1.8 - b) < 0.01) || wb, wa ? a + 0.6 : a, wb ? b - 0.6 : b);
     }
@@ -519,7 +524,7 @@ function buildWorld() {
     row(s, [63, 76, 88], [], false); row(s, [-88, -76, -64], [], false);
     for (const [x, k] of [[-52, 1], [52, -1], [-64, -1], [63, 1]]) {
       box(S, 0.3, 0.9, BACK_Z - WALL_Z, '#ece6d8', x, 0.45, s * (WALL_Z + BACK_Z) / 2);
-      zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * BACK_Z, 1.7, HEDGES.privet, 0.9);
+      if (x !== -52 || s > 0) zhedge(x + k * 0.6, s * (WALL_Z + 0.3), s * BACK_Z, 1.7, HEDGES.privet, 0.9); // Bugnot (west corner) plants its own
     }
     for (let x = -84; x < 86; x += sr(12, 16)) if (Math.abs(Math.abs(x) - 58) > 9) house(S, x, s, 32, { porch: false, velux: false }); // back row, beyond the garden wall
     // road signs: "sens interdit" facing drivers at the +x end, blue "sens unique" at the -x entrance;
@@ -596,7 +601,7 @@ function buildWorld() {
     g.fillStyle = '#fff'; g.font = '700 30px Fredoka, sans-serif'; g.textAlign = 'center';
     g.fillText('RUE', 256, 60); g.font = '700 50px Fredoka, sans-serif'; g.fillText("D'AGUESSEAU", 256, 115);
   }), roughness: 0.5 }));
-  sign.position.set(-50.45, 1.45, -WALL_Z + 0.21);
+  sign.position.set(-50.35, 2.55, -WALL_Z + 0.08); // over Bugnot's garage door
   scene.add(sign);
 
   // merge static meshes by material; repeated bits become instanced meshes

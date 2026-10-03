@@ -1,7 +1,8 @@
 // Erika (the player) — reference photos: maison.png, Aguesseau_1-2.png, aguesseau_haut.png
 // A 1930s pavillon: cream render, steep terracotta gable facing the street (attic window with brown shutters, bargeboards
-// on brackets), tiled canopy over the door, grey lintel bands, chimney + velux on the north (+x) slope, a lower rear wing, and a
-// white garage with a grey roof set back at the end of the driveway (x = -25).
+// on brackets), tiled canopy over the door, grey lintel bands, chimney + velux on the north (+x) slope, a rear extension in
+// line with the house, a white double garage with a grey roof flush with the facade on the north side (the driveway, x = -25),
+// an olive tree and an in-ground pool in the back garden.
 export const hero = { style: 'green', mail: '#2d5a43', wicket: -30.6 }; // green pedestrian gate in line with the door
 
 const WALL = '#ecdfc4', TRIM = '#f6f4ee', QUOIN = '#f4efe3', BAND = '#5b6168', WOOD = '#5e3424', SHUT = '#6b3f2a', PLINTH = '#c9c0b0';
@@ -81,24 +82,25 @@ export default function build(k, l) {
   k.tbox(dg, 2.4, 0.08, 1.0, rm, 0, 3.12, 0.48).rotation.x = 0.38; // canopy
   k.box(dg, 2.42, 0.14, 0.05, WOOD, 0, 2.93, 0.97);
   for (const q of [-1, 1]) { k.box(dg, 0.07, 0.07, 0.95, WOOD, q * 1.0, 2.75, 0.4).rotation.x = -0.55; k.box(dg, 0.07, 0.6, 0.07, WOOD, q * 1.0, 2.75, 0.06); }
-  // north side (+x, facing the driveway): two windows, a small one
-  for (const z of [ZF - 1.8, ZF - 6.2]) win(k, X1 + 0.03, 1.55, z, Math.PI / 2, 1.05, 1.25);
-  win(k, X1 + 0.03, 1.8, ZF - 4.0, Math.PI / 2, 0.55, 0.7);
+  // north side (+x): blind, the garage stands against it
 
-  // ── rear wing (aerial view): lower than the front house, ridge perpendicular to the street like it, shifted south
-  const rx0 = -35.2, rx1 = -28.4, rz0 = ZB, rz1 = -25.2, rw = rx1 - rx0, rd = rz0 - rz1, rh = 2.7;
-  k.box(S, rw, rh, rd, WALL, (rx0 + rx1) / 2, rh / 2, (rz0 + rz1) / 2);
-  k.box(S, rw + 0.08, 0.45, rd + 0.08, PLINTH, (rx0 + rx1) / 2, 0.225, (rz0 + rz1) / 2);
-  roof(k, group(k, S, (rx0 + rx1) / 2, rh, (rz0 + rz1) / 2), rw, rd, 1.9, rm, WALL, { gov: 0.25 });
-  win(k, rx1 + 0.03, 1.4, (rz0 + rz1) / 2, Math.PI / 2, 1.05, 1.1);
+  // ── rear extension: as wide as the house and in line with it, eaves as high, ridge just below the main one
+  const rz0 = ZB, rz1 = -25.2, rd = rz0 - rz1;
+  k.box(S, W, H, rd, WALL, CX, H / 2, (rz0 + rz1) / 2);
+  k.box(S, W + 0.08, 0.45, rd + 0.08, PLINTH, CX, 0.225, (rz0 + rz1) / 2);
+  roof(k, group(k, S, CX, H, (rz0 + rz1) / 2), W, rd, 2.9, rm, WALL, { gov: 0.25 });
+  win(k, X1 + 0.03, 1.55, (rz0 + rz1) / 2, Math.PI / 2, 1.05, 1.25);
+  win(k, CX - 1.6, 1.55, rz1 - 0.03, Math.PI, 1.05, 1.25);
+  win(k, CX + 1.6, 1.55, rz1 - 0.03, Math.PI, 1.05, 1.25);
 
-  // ── garage at the end of the driveway: white, low gable with grey roof and white fascias, door facing the street
-  const gx = -24.95, gz0 = -15, gz1 = -21, gw = 3.3, gh = 2.5, gd = gz0 - gz1;
+  // ── double garage against the north side, front flush with the facade: white, low gable with grey roof, two doors
+  const gx0 = X1, gx1 = -21.35, gx = (gx0 + gx1) / 2, gw = gx1 - gx0, gz0 = ZF, gz1 = ZF - 6, gh = 2.6, gd = gz0 - gz1;
   k.box(S, gw, gh, gd, TRIM, gx, gh / 2, (gz0 + gz1) / 2);
-  roof(k, group(k, S, gx, gh, (gz0 + gz1) / 2), gw, gd, 1.0, '#666b71', TRIM, { ov: 0.25, gov: 0.2, trim: '#f2f1ec', ridge: '#55595e' });
-  k.box(S, 2.6, 2.1, 0.06, '#dcdcd6', gx, 1.05, gz0 + 0.03);
-  for (let i = 1; i < 5; i++) k.box(S, 2.6, 0.03, 0.08, '#b9b9b3', gx, i * 0.42, gz0 + 0.04);
-  k.tbox(S, 3.2, 0.03, 3.65, k.COBBLE, -25, 0.015, -13.175); // driveway up to the garage
+  roof(k, group(k, S, gx, gh, (gz0 + gz1) / 2), gw, gd, 1.2, '#666b71', TRIM, { ov: 0.25, gov: 0.2, trim: '#f2f1ec', ridge: '#55595e' });
+  for (const dx of [-1.3, 1.3]) {
+    k.box(S, 2.3, 2.1, 0.06, '#dcdcd6', gx + dx, 1.05, gz0 + 0.03);
+    for (let i = 1; i < 5; i++) k.box(S, 2.3, 0.03, 0.08, '#b9b9b3', gx + dx, i * 0.42, gz0 + 0.04);
+  }
 
   // ── front garden: paved path to the door, big laurel bush (south) behind a green privacy mesh, a round shrub
   k.box(S, 1.2, 0.04, 3.6, '#bdb5a6', CX, 0.02, -9.7);
@@ -109,9 +111,14 @@ export default function build(k, l) {
   k.blob(S, -32.2, 0.45, -10.9, 0.5, '#557f3a', 0.8);
   k.shrub(S, -29.2, -9.2, 0.4, true);
 
-  // ── back garden: long hedge on the south boundary, round blue above-ground pool
+  // ── back garden: long hedge on the south boundary, round in-ground pool (stone coping flush with the lawn), an olive tree
   k.zhedge(-36.65, -11.6, -28, 1.8, k.HEDGES.privet, 0.7);
-  k.mesh(S, new k.THREE.CylinderGeometry(1.7, 1.7, 1.1, 20), '#3b7fc4', -34.3, 0.55, -27.4);
-  k.mesh(S, new k.THREE.CylinderGeometry(1.6, 1.6, 0.02, 20), '#79c6e6', -34.3, 1.0, -27.4);
+  k.mesh(S, new k.THREE.CylinderGeometry(1.95, 1.95, 0.06, 24), '#e3ddd0', -34.3, 0.03, -27.4);
+  k.mesh(S, new k.THREE.CylinderGeometry(1.65, 1.65, 0.07, 24), '#4fa9d9', -34.3, 0.035, -27.4);
+  const ox = -29.6, oz = -27.6; // olive: short twisted trunk, a few leaning limbs, loose silver-green crown
+  for (const [dx, dz, rx, rz, h] of [[0, 0, 0.12, -0.1, 1.2], [0.2, -0.1, 0.5, 0.3, 1.1], [-0.2, 0.1, -0.45, -0.25, 1.0]]) {
+    const m = k.mesh(S, k.TRUNK, '#7a6a55', ox + dx + Math.sin(rz) * -0.4, 0.2 + h * 0.5, oz + dz + Math.sin(rx) * 0.4); m.scale.set(1.3, h, 1.3); m.rotation.set(rx, 0, rz);
+  }
+  for (let i = 0; i < 7; i++) k.blob(S, ox + k.sr(-1.1, 1.1), k.sr(2.0, 2.8), oz + k.sr(-0.9, 0.9), k.sr(0.55, 0.85), k.sp(['#8b9a6e', '#9aa982', '#7c8c63', '#a3ae8c']), 0.7);
   return H + 1.2;
 }

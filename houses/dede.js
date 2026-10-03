@@ -1,17 +1,17 @@
 // Dédé (89) — reference photos: dede.png, Aguesseau_2-3.png, aguesseau_haut.png
 // White two-storey house, ridge along the street, very wide flat-topped dormer in white brick, balcony with
-// diamond railing over the garage, recessed entrance porch, textured white-brick bands, lower cream annex
-// with a roof terrace and a brick chimney on the corner side.
+// diamond railing over the garage, recessed entrance porch, textured white-brick bands. The cream house with the
+// brick chimney on the corner side is Bugnot's (houses/bugnot.js).
 export const hero = {
   style: { wall: '#f1f0ec', cap: '#e4e3de', pil: '#f3f2ee', bar: '#3e4146', gate: '#3e4146' },
-  num: '89', mail: '#ecebe6', wicket: -41, // pedestrian gate in line with the porch
+  num: '89', mail: '#ecebe6', wicket: -40, // pedestrian gate in line with the porch
 };
 
 const W = 10.4, D = 9.2, H = 6.0, RH = 3.4; // main block: width (x), depth (z), eave height, roof rise
 const WALL = '#f3f2ee', RAIL = '#3e4146';
 
 export default function build(k, l) {
-  const T = k.THREE, X0 = l.gate - 2.6, Z0 = -l.zf; // garage door centred on the gate; front face on the facade line
+  const T = k.THREE, X0 = l.gate - 1.6, Z0 = -l.zf; // garage door 1 m right of the gate's centre (dede.png); front face on the facade line
   const g = new T.Group(); g.position.set(X0, 0, Z0); k.S.add(g);
   // box with per-face UVs in metres (1 texture repeat = `u` metres), for bricks and roller-shutter slats
   const fbox = (P, w, h, d, mat, x, y, z, u = 1) => {
@@ -134,28 +134,6 @@ export default function build(k, l) {
   // +x side (seen by the camera): roller-shuttered windows on both floors
   for (const [zz, y, w, h] of [[-2.3, 4.3, 1.2, 1.3], [-6.4, 4.3, 1.2, 1.3], [-6.4, 1.5, 1.2, 1.3], [-2.9, 1.4, 0.7, 1.0]]) rwin(g, W + 0.02, y, zz, w, h, 0.6, Math.PI / 2);
 
-  // ── cream annex on the corner side: two storeys, flat-roofed front room with a railed terrace on top
-  const A = new T.Group(); A.position.set(-2.5, 0, 0); g.add(A); // annex local x -2.5..0 (world lot edge + 0.1)
-  const AC = '#ede5d8', AW = 2.3, ah = 5.5;
-  k.box(A, AW, ah, 7.5, AC, AW / 2, ah / 2, -1.5 - 3.75);
-  k.box(A, AW + 0.05, 0.3, 7.55, '#d9d7d0', AW / 2, 0.15, -5.25);
-  const ar = new T.Group(); ar.position.set(AW / 2, ah, -5.25); ar.rotation.y = Math.PI / 2; A.add(ar);
-  const ahf = 3.75, arh = 1.7, aa = Math.atan2(arh, ahf), asl = Math.hypot(ahf, arh) + 0.35;
-  k.mesh(ar, new T.ExtrudeGeometry(new T.Shape([k.V2(-ahf, 0), k.V2(ahf, 0), k.V2(0, arh)]), { depth: AW, bevelEnabled: false }).translate(0, 0, -AW / 2), AC);
-  for (const q of [-1, 1]) k.tbox(ar, asl, 0.18, AW + 0.3, TILES, q * (asl * Math.cos(aa) / 2 + Math.sin(aa) * 0.1), arh - asl * Math.sin(aa) / 2 + Math.cos(aa) * 0.1, 0.15).rotation.z = -q * aa;
-  k.box(A, 0.6, 3.0, 0.5, '#9c4f36', 0.5, ah + 1.2, -4.2); // brick chimney + TV antenna
-  k.box(A, 0.7, 0.1, 0.6, '#6f6c68', 0.5, ah + 2.75, -4.2);
-  k.box(A, 0.04, 1.6, 0.04, '#55585c', 0.9, ah + 3.5, -4.2);
-  k.box(A, 0.03, 0.03, 1.3, '#55585c', 0.9, ah + 4.2, -4.2);
-  for (let i = -2; i <= 2; i++) k.box(A, 0.55 - Math.abs(i) * 0.08, 0.02, 0.02, '#55585c', 0.9, ah + 4.2, -4.2 + i * 0.28);
-  rwin(A, AW / 2 + 0.1, 4.2, -1.48, 0.9, 1.3, 0.3);
-  k.box(A, AW, 2.8, 3.0, WALL, AW / 2, 1.4, -1.5 + 1.5 - 0.0); // ground-floor front room reaching z = +1.5
-  k.box(A, AW + 0.1, 0.12, 3.1, '#e2e1dc', AW / 2, 2.86, 0);
-  k.box(A, AW, 0.05, 0.05, RAIL, AW / 2, 3.9, 1.45);
-  for (let x = 0.1; x < AW; x += 0.16) k.box(A, 0.03, 0.95, 0.03, RAIL, x, 3.4, 1.45);
-  k.box(A, 0.05, 0.05, 3.0, RAIL, AW - 0.02, 3.9, 0);
-  for (let z = -1.3; z < 1.45; z += 0.16) k.box(A, 0.03, 0.95, 0.03, RAIL, AW - 0.02, 3.4, z);
-
   // ── front garden: beige tiled forecourt and path to the porch, shrubs, pots, bamboo
   const tile = (x0, x1, z0, z1) => fbox(k.S, x1 - x0, 0.03, z1 - z0, PAVE, (x0 + x1) / 2, 0.035, (z0 + z1) / 2, 1.2);
   tile(X0 + 0.2, X0 + 4.9, Z0 + 0.0, -7.8);
@@ -173,11 +151,11 @@ export default function build(k, l) {
   const tp = pot(X0 + 8.95, Z0 - 0.3, '#8a8580', 0.22);
   k.blob(k.S, X0 + 8.95, tp + 0.25, Z0 - 0.3, 0.32, '#5f8f3e', 1.1);
   k.blob(k.S, -38.4, 1.2, -9.3, 1.1, '#4f7a35', 1.2); // big shrubs behind the right-hand railing
-  k.blob(k.S, -39.6, 1.0, -10.4, 0.9, '#5f8f3e', 1.1);
+  k.blob(k.S, -38.7, 1.0, -10.6, 0.9, '#5f8f3e', 1.1);
   k.blob(k.S, -38.3, 0.9, -11.2, 0.8, '#3f6b30', 1.0);
   k.shrub(k.S, -42.8, -8.6, 0.5, true);
   // back garden: lawn with a couple of trees
-  k.tree(k.S, -48.5, -26, 6.5, 'green');
+  k.tree(k.S, -45.5, -26, 6.5, 'green');
   k.tree(k.S, -40, -28, 5.5, 'green');
   return H;
 }

@@ -4,7 +4,7 @@
 // Front boundary: pink rendered wall + pale wavy railing, pink pillars, solid sage-green gate.
 export const hero = {
   style: { wall: '#e6a491', cap: '#ece9e3', pil: '#e6a491', bar: '#d2e3db', wave: true, gate: '#9fc4b1', ph: 1.95, ball: '#8fa6bf' },
-  num: '92', mail: '#98b0a3', wicket: -23.2, // pedestrian gate north of the sliding leaf
+  num: '92', mail: '#98b0a3', // no pedestrian gate
 };
 
 const PINK = '#f7bfac', MINT = '#9dc6ae', WHITE = '#f4f3ee', HOOD = '#dcd9d1', VERGE = '#93402b';
