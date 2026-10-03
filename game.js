@@ -21,6 +21,7 @@ const fr = (v, d = 0) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, m
 
 // ───────────────────────── street layout (street runs along X, sides are z>0 (s=1) and z<0 (s=-1))
 // one-way street: a single lane at z=0, traffic always flows toward +x (cars turn in from Rue du Centre at x=-XS, out onto the cross street at +XS)
+const POLE_XS = [-38, -22.5, -2, 18, 38], POLE_Z = -6.85; // wooden utility poles on the far sidewalk
 const LANE_Z = 0, SLOT_Z = 3.95, CURB_Z = 5.1, WALL_Z = 7.5, STREET_X = 52, END_X = 70, SLOT_LEN = 5.4;
 // real layout (aguesseau_haut.png): +x = north, Rue du Centre just past -x; west side s=-1: Dédé, Erika, Jack; east side s=1: Marion, Valérie, Marie-Claude
 const SLOT_XS = { 1: [-44.2, -38.8, -33.4, -23.7, -18.3, -8.1, -2.7, 2.7], [-1]: [-41, -35.6, -30.2, -20, -14.6, -3.5, 1.9, 7.3] };
@@ -546,7 +547,7 @@ function buildWorld() {
   for (const x of [-58, 58]) for (let z = 6.5; z < 120; z += 4) for (const s of [1, -1]) box(S, 0.14, 0.01, 2, '#efefe9', x, 0.006, s * z); // cross streets: two-way
 
   // wooden utility poles with arm-mounted lamps, droopy overhead wires and service drops (far side, like the photos)
-  const poleXs = [-38, -22.5, -2, 18, 38], pz = -6.85, WIRE = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
+  const poleXs = POLE_XS, pz = POLE_Z, WIRE = new THREE.LineBasicMaterial({ color: '#2a2a2a' });
   const wire = (p, q, sag) => scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([...Array(13)].map((_, k) => V3().lerpVectors(p, q, k / 12).setY(p.y + (q.y - p.y) * k / 12 - Math.sin(Math.PI * k / 12) * sag))), WIRE));
   for (const x of poleXs) {
     mesh(S, new THREE.CylinderGeometry(0.11, 0.16, 8.8, 7), '#6f5238', x, 4.4, pz);
@@ -745,17 +746,17 @@ const CAR_TYPES = {
 };
 const AI_COLORS = ['#8c939b', '#d9dcde', '#5b7391', '#7d8288', '#f0f0f0', '#a83c3c', '#56657a', '#b9a98a', '#3f6a8f', '#33373d', '#c8ccd0'];
 const MINE_COLORS = ['#f2b134', '#2ec4b6', '#e76f51', '#9b5de5', '#00bbf9'];
-const NEIGHBOURS = [ // home: x of their house (they prefer bays near it)
-  { name: 'Marion', color: '#2f3e5c', type: 'mpv', home: -37 },
+const NEIGHBOURS = [
+  { name: 'Marion', color: '#2f3e5c', type: 'mpv' },
   { name: 'Thierry', color: '#5b6470', type: 'mpv' },
-  { name: 'Marie-Claude', color: '#6b7075', type: 'mini', home: -12 },
-  { name: 'Dédé', color: '#3c3f44', type: 'suv', home: -44 },
+  { name: 'Marie-Claude', color: '#6b7075', type: 'mini' },
+  { name: 'Dédé', color: '#3c3f44', type: 'suv' },
   { name: 'Florence', color: '#eeeeee', type: 'hatch' },
-  { name: 'Le père', color: '#8a8f94', type: 'hatch', home: -25 },
+  { name: 'Le père', color: '#8a8f94', type: 'hatch' },
   // Erika's household
-  { name: 'Clément', model: buildPolo, home: -30, dented: true, family: true }, // battered grey VW Polo 2015: breaks down every time he parks
-  { name: 'Léa', color: '#b7d3e8', type: 'mini', home: -30, family: true },
-  { name: 'Kévin', model: buildZ4, home: -30, family: true }, // black BMW Z4 E89
+  { name: 'Clément', model: buildPolo, dented: true, family: true }, // battered grey VW Polo 2015: breaks down every time he parks
+  { name: 'Léa', color: '#b7d3e8', type: 'mini', family: true },
+  { name: 'Kévin', model: buildZ4, family: true }, // black BMW Z4 E89
 ];
 const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 14);
 function buildCar(color, type) {
@@ -869,8 +870,7 @@ function findSlot(c) {
     if (s.ai || s.block && s.block !== player || s === c.snub) continue; // Erika on foot doesn't put them off: they try, and bounce
     const rem = (s.x - c.x) * c.dir;
     if (rem < 10 || rem > 45) continue;
-    const sc = c.kind === 'neighbour' ? Math.abs(s.x - c.home) : rem;
-    if (sc < bs) { bs = sc; best = s; }
+    if (rem < bs) { bs = rem; best = s; } // first free bay ahead, either side
   }
   return best;
 }
@@ -996,6 +996,7 @@ const touchesBelly = c => !driving && pedPush({ x: player.x, z: player.z }, c, P
 function bellyBounce(c) { // a car pulling in bumps into Erika: it bounces off her belly and gives up the bay
   const dx = c.x - player.x, dz = c.z - player.z, d = Math.hypot(dx, dz) || 1;
   c.snub = c.slot; c.slot.ai = null; c.slot = null; c.state = 'drive'; c.speed = 0; // snub: never retry that bay
+  if (c.kind === 'foreign') c.wantsSlot = false; // a stranger turned away drives on out of the street
   c.kick = 1; c.kx = dx / d * 3.5; c.kz = dz / d * 3.5; belly = 1;
   SFX.boing(); floatText('Boing !', player.x, 3, player.z, '#ffd166');
 }
@@ -1458,11 +1459,11 @@ $('buyBays').onclick = e => { buyBays(); e.currentTarget.blur(); };
 function computeBlocks() {
   for (const s of slots) {
     s.block = null;
-    for (const c of cars) if (c.blocker && covers(c, s)) s.block = c;
+    for (const c of cars) if ((c.blocker || c.family && c.state === 'parked') && covers(c, s)) s.block = c; // a household car left across a line holds both bays
     for (const b of bins) if (b.slot === s) s.block = b;
     if (!driving && !s.block && inSlot(player, s)) s.block = player;
     // a blocker cancels a reservation, even mid-manoeuvre: the car rejoins traffic instead of parking through it (Erika: it bounces off her belly)
-    if (s.block && s.block !== player && (s.ai?.state === 'drive' || s.ai?.state === 'park')) { s.ai.state = 'drive'; s.ai.slot = null; s.ai = null; }
+    if (s.block && s.block !== player && (s.ai?.state === 'drive' || s.ai?.state === 'park')) { s.ai.state = 'drive'; s.ai.slot = null; if (s.ai.kind === 'foreign') s.ai.wantsSlot = false; s.ai = null; }
   }
 }
 const SLOT_COLORS = { foreign: '#ef476f', neighbour: '#2ec4b6', family: '#9b5de5', mine: '#f4a261', incoming: '#ffb703' };
@@ -1470,7 +1471,7 @@ function paintSlots() {
   const pulse = 0.5 + 0.5 * Math.sin(elapsed * 5);
   for (const s of slots) {
     const ai = s.ai && s.ai.state !== 'drive' ? (s.ai.family ? 'family' : s.ai.kind) : null;
-    const kind = ai || (s.block && s.block !== player ? 'mine' : s.ai?.kind === 'foreign' ? 'incoming' : null);
+    const kind = ai || (s.block && s.block !== player ? (s.block.family ? 'family' : 'mine') : s.ai?.kind === 'foreign' ? 'incoming' : null);
     s.ov.material.color.set(kind ? SLOT_COLORS[kind] : '#ffffff');
     s.ov.material.opacity = kind === 'foreign' || kind === 'incoming' ? 0.25 + 0.2 * pulse : kind ? 0.3 : 0.07 + 0.08 * pulse;
     s.el.style.background = kind ? SLOT_COLORS[kind] : 'rgba(255,255,255,.18)';
@@ -1496,7 +1497,7 @@ function hud(dt) {
   $('rate').textContent = `+${fr(rate, 1)} /s` + (meterRate ? ` (bornes +${fr(meterRate, 1)})` : '');
   $('foreign').textContent = foreignN;
   $('neigh').textContent = cars.filter(c => c.kind === 'neighbour' && c.state === 'parked').length;
-  $('held').textContent = slots.filter(s => s.block && s.block !== player).length;
+  $('held').textContent = slots.filter(s => s.block && s.block !== player && !s.block.family).length;
   $('banner').classList.toggle('on', foreignN === 0);
   $('bmult').textContent = `×${mult.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}`;
   if (foreignN === 0 && !wasProtected) toast('Plus aucun inconnu garé : crédits ×3 !');
@@ -1598,11 +1599,11 @@ function carryBin(b, x, z, a) {
   b.x = x + Math.cos(a) * 0.95; b.z = clamp(z - Math.sin(a) * 0.95, 0.5 - WALL_Z, WALL_Z - 0.5);
   b.mesh.position.set(b.x, Math.abs(b.z) > CURB_Z ? 0.15 : 0, b.z); b.mesh.rotation.y = a; b.tag.visible = false;
 }
-// free sidewalk x near x on side s: clear of gates and of other sidewalk bins
+// free sidewalk x near x on side s: clear of gates, utility poles and other sidewalk bins
 function sidewalkSpot(x, s) {
   for (let k = 0; k < 25; k++) {
     const t = x + (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
-    if (Math.abs(t) < STREET_X - 1 && GATES[s].every(g => Math.abs(t - g) > 2.2) && bins.every(b => b.slot || Math.sign(b.z) !== s || Math.abs(b.x - t) > 1)) return t;
+    if (Math.abs(t) < STREET_X - 1 && GATES[s].every(g => Math.abs(t - g) > 2.2) && (s !== Math.sign(POLE_Z) || POLE_XS.every(p => Math.abs(t - p) > 0.8)) && bins.every(b => b.slot || Math.sign(b.z) !== s || Math.abs(b.x - t) > 1)) return t;
   }
   return null;
 }
@@ -1789,7 +1790,7 @@ function wife(dt) {
 }
 
 // little events: a baguette on the sidewalk (speed boost), « le père » (Valérie's husband, opposite) coming out to fart next to Erika (slowdown)
-const baguette = new THREE.Group(), BAG = { t: rand(20, 35), life: 0 };
+const baguette = new THREE.Group(), BAG = { t: rand(20, 35) };
 mesh(baguette, new THREE.CapsuleGeometry(0.1, 0.8, 4, 8), '#d99a4e').rotation.z = Math.PI / 2;
 for (const x of [-0.26, 0, 0.26]) box(baguette, 0.08, 0.02, 0.15, '#f3dfb3', x, 0.09, 0).rotation.y = 0.6;
 baguette.scale.setScalar(1.4); baguette.visible = false; scene.add(baguette);
@@ -1805,11 +1806,11 @@ function events(dt) {
     if (!driving && Math.hypot(player.x - b.x, player.z - b.z) < 1.2) {
       baguette.visible = false; boostT = 8; BAG.t = rand(25, 45); SFX.buy();
       floatText('Baguette ! Erika file !', player.x, 3.4, player.z, '#ffd166');
-    } else if ((BAG.life -= dt) <= 0) { baguette.visible = false; BAG.t = rand(25, 45); }
+    }
   } else if ((BAG.t -= dt) <= 0) {
     const s = pick([-1, 1]), x = sidewalkSpot(rand(-45, 45), s);
     if (x === null) BAG.t = 2;
-    else { b.set(x, 0.6, s * (CURB_Z + WALL_Z) / 2); baguette.visible = true; BAG.life = 30; puff(b.x, b.z, 4, '#fff3c4'); }
+    else { b.set(x, 0.6, s * (CURB_Z + WALL_Z) / 2); baguette.visible = true; puff(b.x, b.z, 4, '#fff3c4'); }
   }
   if (PA.phase === 'home') {
     if ((PA.t -= dt) > 0 || driving) return;
@@ -2034,7 +2035,35 @@ function selfTestSeat() {
   ok(flames && c.popN === 0, 'pops and bangs with flames');
   return 'ok';
 }
-queueMicrotask(() => Object.assign(window.__game, { selfTestSeat, selfTestFamily, selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
+// self-check: a household car left across a line holds both bays; a stranger turned away leaves the street; neighbours take the
+// first free bay ahead; no sidewalk bin on a utility pole; the baguette waits to be picked up. Returns 'ok' or throws.
+function selfTestStreet() {
+  const ok = (c, m) => { if (!c) throw new Error('selfTestStreet: ' + m); };
+  if (driving) { driving.speed = 0; actionE(); }
+  W.wait = PA.t = chatT = 1e9;
+  ok(bins.every(b => b.slot || Math.sign(b.z) !== Math.sign(POLE_Z) || POLE_XS.every(p => Math.abs(b.x - p) > 0.8)), 'no bin on a utility pole');
+  for (const c of cars.filter(c => c.kind === 'foreign')) leaveStreet(c);
+  const k = cars.find(c => c.name === 'Kévin'), [a, b] = slots.filter((q, i, l) => q.side === 1 && bayFree(q) && l.some(r => r.side === 1 && bayFree(r) && Math.abs(r.x - q.x - SLOT_LEN) < 0.1))
+    .map(q => [q, slots.find(r => r.side === 1 && Math.abs(r.x - q.x - SLOT_LEN) < 0.1)])[0];
+  if (k.slot) { k.slot.ai = null; k.slot = null; }
+  placeParked(k, a, 999); k.mesh.visible = true;
+  Object.assign(player, { x: k.x, z: k.z + k.r + 0.5 }); actionE();
+  Object.assign(k, { x: a.x + SLOT_LEN / 2, z: parkZ(k, 1), ang: 0, speed: 0 }); actionE(); computeBlocks();
+  ok(!driving && [a, b].every(q => q.ai === k || q.block === k), 'household car across a line holds both bays');
+  Object.assign(player, { x: 0, z: 0 }); computeBlocks();
+  const n = cars.find(c => c.kind === 'neighbour' && c.state === 'away'), free = slots.filter(q => bayFree(q) && q.x - (-40) >= 10 && q.x - (-40) <= 45);
+  Object.assign(n, { x: -40, z: 0, dir: 1, home: 40 }); // home: the old rule aimed for the bay nearest their house
+  ok(findSlot(n) === free.sort((p, q) => p.x - q.x)[0], 'neighbour takes the first free bay ahead');
+  const f = addCar('foreign', '#888', 'hatch'), q = slots.find(s => bayFree(s) && Math.abs(s.x) < 40);
+  Object.assign(f, { x: q.x - 8, z: 0, speed: 4, slot: q, state: 'drive', wantsSlot: true }); q.ai = f; startPark(f);
+  Object.assign(player, { x: bez(f.path, 0.3, 0), z: bez(f.path, 0.3, 1) });
+  for (let t = 0; t < 5 && f.state !== 'drive'; t += 0.1) window.__game.step(0.1);
+  ok(f.state === 'drive' && !f.wantsSlot && !f.slot, 'stranger turned away drives on');
+  Object.assign(player, { x: 0, z: 0 }); BAG.t = 0; window.__game.step(0.1); ok(baguette.visible, 'baguette appears');
+  window.__game.step(40); ok(baguette.visible, 'baguette still there 40 s later');
+  return 'ok';
+}
+queueMicrotask(() => Object.assign(window.__game, { selfTestStreet, selfTestSeat, selfTestFamily, selfTestEconomy, selfTestMechanic, jack: J, jw, red, W, PA, pa, mech, walkers, held: () => binsInHand, selfTestNeighbours, selfTestWife, selfTestEvents, selfTestTuto })); // after __game exists
 
 // ───────────────────────── setup
 function setup() {
@@ -2046,12 +2075,12 @@ function setup() {
   const freeSlot = () => pick(slots.filter(s => !s.ai && !s.block));
   NEIGHBOURS.forEach((n, i) => {
     const c = addCar('neighbour', n.color, n.type, n.model?.(ENV));
-    Object.assign(c, { name: n.name, home: n.home ?? rand(-25, 25), dented: n.dented, family: n.family, back: rand(10, 40) });
+    Object.assign(c, { name: n.name, dented: n.dented, family: n.family, back: rand(10, 40) });
     if (i < 3) placeParked(c, freeSlot(), rand(30, 120));
     else { c.state = 'away'; c.timer = Infinity; c.mesh.visible = false; } // the spawner calls them home
   });
   for (const s of [1, -1]) for (const g of GATES[s]) for (const dx of Math.random() < 0.25 ? [2.4, 3.5] : [2.4])
-    putBin(newBin('#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])), g + dx, s * BIN_Z);
+    putBin(newBin('#4b4f55', pick(['#7a2b35', '#3d5a44', '#e0c53a'])), sidewalkSpot(g + dx, s) ?? g + dx, s * BIN_Z);
   for (let i = 0; i < 2; i++) placeParked(addCar('foreign', pick(AI_COLORS), pick(['hatch', 'mpv', 'suv', 'mini'])), freeSlot(), rand(20, 90));
   camTarget.set(player.x, 0, player.z);
   scoring(0); // initialise HUD counters before the first tick
