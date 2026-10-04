@@ -859,10 +859,12 @@ let boostT = 0, slowT = 0, chatT = rand(30, 50); // speed boost (baguette), slow
 let binsInHand = null, carsOwned = 1, started = false, paused = false, foreignN = 0;
 let best = 0;
 const EV = { valerie: 0, fart: 0, pere: 0, chat: 0, jack: 0, wife: 0, baguette: 0, wash: 0 }; // special events so far (the tutorial waits for them)
-// special interaction: the game freezes, the camera goes to it and the rest of the screen is blurred (tutoOnly: only during the tutorial)
+// special interaction, once each during the tutorial: the game freezes, the camera goes to it and the rest of the screen is blurred
 let focus = null;
-function spotlight(x, z, title, text, tutoOnly = false) {
-  if (!started || focus || tutoOnly && tutoI < 0) return;
+const focused = new Set(); // titles already shown in this tutorial run
+function spotlight(x, z, title, text) {
+  if (!started || focus || tutoI < 0 || focused.has(title)) return;
+  focused.add(title);
   focus = { x, z, t: clamp(text.length / 14, 4, 9) };
   $('focusTitle').textContent = nb(title); $('focusText').textContent = nb(text);
   $('focus').classList.remove('hidden'); $('focusCard').classList.remove('hidden');
@@ -1062,11 +1064,9 @@ function updateAI(c, dt) {
     return;
   }
   if (chatT <= 0 && !driving && !WASH.c && Math.abs(player.x - c.x) < 4 && Math.abs(player.z - c.z) < 7) {
-    c.chat = rand(5, 8); chatT = rand(45, 75); EV.chat++;
-    const who = c.name ?? pick(TOWN);
-    floatText(pick(['Salut Erika ! Ça va ?', 'Oh Erika ! Tu connais la nouvelle ?', 'Erika ! Ça fait longtemps !']), c.x, 3.2, c.z, '#cdb4ff');
+    const who = c.name ?? pick(TOWN), line = pick(GOSSIP.filter(l => !l.includes(who)));
+    c.say = `${who} : « ${line} »`; c.chat = clamp(line.length / 14, 5, 9); chatT = rand(45, 75); EV.chat++; // the speech bubble over the car shows c.say while it stops
     floatText(pick(['Ah salut !', 'Ben dis donc !', 'Oh bah ça alors !']), player.x, 3.8, player.z, '#ffd166');
-    spotlight(c.x, c.z, `${who} s’arrête pour papoter`, `« ${pick(GOSSIP.filter(l => !l.includes(who)))} »`);
   }
   if (c.wantsSlot && !c.slot && (c.scan -= dt) <= 0) {
     c.scan = 0.3;
@@ -1308,11 +1308,9 @@ function actionE() {
     const d = !binsInHand && nearestDirty();
     if (d) return startWash(d);
     if (c && binsInHand) return toast('Pose d’abord la poubelle (B)');
-    if (c?.panne && !c.broken && !c.fixed && Math.random() < c.panne) {
-      c.broken = true;
-      spotlight(c.x, c.z, 'La BMW est en panne', 'Rrr… rrr… Ta BMW ne démarre pas, comme une fois sur deux. Stéphane le mécano arrive pour la réparer.');
-    }
+    if (c?.panne && !c.broken && !c.fixed && Math.random() < c.panne) c.broken = true;
     if (c?.broken) {
+      if (c.panne) spotlight(c.x, c.z, 'La BMW est en panne', 'Rrr… rrr… Ta BMW ne démarre pas, comme une fois sur deux. Stéphane le mécano arrive pour la réparer.');
       SFX.crank(); floatText('Rrr… rrr… elle démarre pas !', c.x, 3, c.z, '#ffd166');
       const msg = ST.car === c ? 'Stéphane le mécano s’en occupe' : ST.car ? 'Stéphane est occupé, il arrive juste après' : 'Elle ne démarre pas ! Stéphane le mécano arrive';
       callMechanic(c); return toast(msg);
@@ -1862,7 +1860,7 @@ function jack(dt) {
       puff(J.x - J.len / 2, J.z, 4, '#cfcfcf'); SFX.block();
       Object.assign(jw, { x: J.x - 0.6, z: g.side * 5.3 });
       floatText('Jack : Je te garde la place, Erika !', J.x, 3.4, J.z, '#b8f28a'); EV.jack++;
-      spotlight(J.x, J.z, 'Jack te garde des places', 'Le vieux Jack a garé sa voiture beige à cheval sur deux places pour toi. Il rentre à pied et reviendra la chercher plus tard.', true);
+      spotlight(J.x, J.z, 'Jack te garde des places', 'Le vieux Jack a garé sa voiture beige à cheval sur deux places pour toi. Il rentre à pied et reviendra la chercher plus tard.');
       go(jw, route(jw.x, jw.z, JACK_GATE, -WALL_Z - 1.6), () => { jw.g.visible = false; J.phase = 'visit'; J.wait = rand(60, 90); });
       return;
     }
@@ -1901,7 +1899,7 @@ function wife(dt) {
       go(ww, route(GARAGE_X, WIFE_HOME, k.x - 0.6, Math.sign(k.z) * 5.3), () => {
         ww.g.visible = false; W.phase = 'unpark';
         floatText('Je prends la voiture, chéri !', k.x, 3.4, k.z, '#f1c0e8'); if (nearPlayer(k.x, k.z)) SFX.door(); EV.wife++;
-        spotlight(k.x, k.z, 'Ta femme emprunte une voiture', 'Elle part faire un tour avec une de tes voitures : la place qu’elle gardait se libère ! Elle la ramènera devant ton garage, à toi de la regarer.', true);
+        spotlight(k.x, k.z, 'Ta femme emprunte une voiture', 'Elle part faire un tour avec une de tes voitures : la place qu’elle gardait se libère ! Elle la ramènera devant ton garage, à toi de la regarer.');
       });
       return;
     }
@@ -2296,10 +2294,10 @@ const TUTO = [ // t: title, x: text (html, or a function), done?, at: arrow targ
     at: () => at(shown(red), 3.2) || at(bins.find(b => b.slot), 3.2) },
   { t: 'Une baguette !', x: 'Une baguette est tombée sur le trottoir : marche dessus pour la ramasser, tu cours plus vite pendant quelques secondes.',
     go: dropBaguette, done: () => did('baguette'), at: () => baguette.visible && at(baguette.position, 1.6) },
-  { t: 'Le père', x: 'Le père, le mari de Valérie, sort de chez lui pour te courir après et péter à côté de toi : tu marches au ralenti. Sème-le assez longtemps et il rentre… ou laisse-toi attraper pour voir !',
-    tick: () => { if (!did('pere') && PA.phase === 'home') PA.t = 0; }, done: () => did('pere') && !focus, at: () => at(shown(pa), 3) },
+  { t: 'Le père', x: 'Le père, le mari de Valérie, sort de chez lui pour te courir après et péter à côté de toi : tu marches au ralenti. Sème-le assez longtemps et il rentre… mais cette fois, laisse-toi attraper pour voir !',
+    tick: () => { if (!did('fart') && PA.phase === 'home') PA.t = 0; }, done: () => did('fart') && !focus, at: () => at(shown(pa), 3) },
   { t: 'Les potins du quartier', x: 'Va au bord de la route, à pied : une voiture va s’arrêter pour te raconter les potins du quartier. Pendant ce temps, elle bloque la circulation !',
-    tick: tutoChat, done: () => did('chat') && !focus, at: () => TU.car?.mesh.visible && at(TU.car, 3.6) },
+    tick: tutoChat, done: () => did('chat') && !cars.some(c => c.chat > 0), at: () => TU.car?.mesh.visible && at(TU.car, 3.6) },
   { t: 'Jack', x: 'Le vieux Jack, ton voisin, sort sa voiture beige et la gare à cheval sur deux places pour te les garder. Merci Jack !',
     tick: () => { if (!did('jack') && ['home', 'gone', 'round', 'visit'].includes(J.phase)) J.wait = Math.min(J.wait, 0.5); }, done: () => did('jack') && !focus,
     at: () => J.mesh.visible && J.state !== 'away' ? at(J, 4.3) : at(shown(jw), 3) },
@@ -2322,6 +2320,7 @@ const TUTO = [ // t: title, x: text (html, or a function), done?, at: arrow targ
 function tuto(i) {
   tutoI = i >= 0 && i < TUTO.length ? i : -1; tutoFrom = { x: player.x, z: player.z };
   if (tutoI < 0) { tutoDone = true; try { localStorage.setItem('parkingGuardTuto', 1); } catch {} }
+  if (tutoI === 0) focused.clear(); // a new run shows every special interaction again
   TU = {}; tutoEV = { ...EV }; tutoT0 = elapsed;
   TUTO[tutoI]?.go?.();
   $('coachText').dataset.t = '';
@@ -2375,7 +2374,7 @@ function selfTestTuto() {
   Object.assign(player, { x: s.x - 0.9, z: s.z, ang: 0 }); person.g.rotation.y = 0; window.__game.step(0.1); actionB(); at(5, 'bin in a bay');
   player.x = s.x - 8; until(120, 6, 'Valérie takes the bin back');
   ok(baguette.visible, 'baguette dropped'); Object.assign(player, { x: baguette.position.x, z: baguette.position.z }); window.__game.step(0.1); at(7, 'baguette picked up');
-  Object.assign(player, { x: RED_GATE + 3, z: SW }); until(60, 8, 'the father came out');
+  Object.assign(player, { x: RED_GATE + 3, z: SW }); until(60, 8, 'the father farted');
   Object.assign(player, { x: -20, z: -5.5 }); until(150, 9, 'a driver stopped to chat');
   until(300, 10, 'Jack kept two bays');
   until(150, 11, 'the wife took a car');
@@ -2385,7 +2384,7 @@ function selfTestTuto() {
   score = 1e5; buyCar(); at(13, 'car bought');
   const n = TU.car; near(n); actionE(); ok(!driving && n.broken && ST.car === n, 'the BMW breaks down, Stéphane comes');
   for (let t = 0; t < 90 && n.broken; t += 0.2) window.__game.step(0.2);
-  n.panne = 0; getIn(n); park(n); at(14, 'BMW parked');
+  n.panne = 0; getIn(n); park(n); at(14, 'BMW parked'); coach(); // its tick makes a car dirty
   const d = cars.find(c => c.dirty && c.state === 'parked'); ok(d, 'a dirty car'); const sc = score;
   near(d); actionE(); ok(WASH.c === d, 'washing'); for (let t = 0; t < 3; t += 0.2) window.__game.step(0.2);
   at(15, 'car washed'); ok(!d.dirty && score >= sc + WASH_PAY, 'paid for the wash');
@@ -2415,6 +2414,13 @@ function frame(now) {
   if (focus) { // keep the clear hole of the blur on the event
     const v = new THREE.Vector3(focus.x, 1, focus.z).project(camera), f = $('focus').style;
     f.setProperty('--fx', (v.x + 1) / 2 * innerWidth + 'px'); f.setProperty('--fy', (1 - v.y) / 2 * innerHeight + 'px');
+  }
+  const ch = started && !paused && cars.find(c => c.chat > 0), bu = $('bubble'); // speech bubble over a driver stopped to chat (the game goes on)
+  bu.classList.toggle('hidden', !ch);
+  if (ch) {
+    if (bu.dataset.t !== ch.say) { bu.dataset.t = ch.say; bu.textContent = nb(ch.say); }
+    const v = new THREE.Vector3(ch.x, 2.4, ch.z).project(camera), x = (v.x + 1) / 2 * innerWidth, w = bu.offsetWidth / 2, l = clamp(x, w + 8, innerWidth - w - 8);
+    Object.assign(bu.style, { left: l + 'px', top: (1 - v.y) / 2 * innerHeight + 'px' }); bu.style.setProperty('--tail', clamp(x - l + w, 16, 2 * w - 16) + 'px');
   }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

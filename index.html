@@ -74,6 +74,10 @@
   #focusCard h3 { margin: 0 0 6px; font-size: 19px; color: var(--accent); }
   #focusCard .label { margin-top: 8px; }
   #focus.hidden, #focusCard.hidden { display: none; }
+  /* speech bubble over a driver stopped to chat (left/top/--tail set by game.js) */
+  #bubble { position: fixed; transform: translate(-50%, -100%); width: max-content; max-width: min(300px, calc(100vw - 32px)); padding: 8px 14px; border-radius: 14px; background: #fffdf6; color: #2a2433; font-size: 15px; line-height: 1.35; text-align: center; pointer-events: none; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+  #bubble::after { content: ''; position: absolute; left: var(--tail, 50%); top: 100%; margin-left: -8px; border: 8px solid transparent; border-top-color: #fffdf6; }
+  #bubble.hidden { display: none; }
   #best { margin-top: 12px; font-size: 14px; opacity: .7; }
   /* touch: floating stick on the left half, action buttons bottom right, compact HUD; hidden with a mouse */
   #stick, #tbtns, #tmenu, .tc { display: none; }
@@ -163,6 +167,7 @@
 <div id="tmenu"><button data-k="KeyH" aria-label="Aide">?</button><button data-k="KeyP" aria-label="Pause">⏸</button><button id="tMute" data-k="KeyM" aria-label="Son">🔊</button></div>
 <div id="prompt"></div>
 <div id="toast"></div>
+<div id="bubble" class="hidden"></div>
 <div id="focus" class="hidden"></div>
 <div id="focusCard" class="panel hidden"><h3 id="focusTitle"></h3><div id="focusText"></div><div class="label"><span class="kb">E ou Espace</span><span class="tc">Touche l'écran</span> pour continuer</div></div>
 
